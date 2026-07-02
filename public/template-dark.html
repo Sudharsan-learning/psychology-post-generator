@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Modern Dark Template</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #111111;
+    --text: #F3F4F6;
+    --accent: #A78BFA;
+    --sub: #9CA3AF;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:#000;
+    font-family:'Outfit', sans-serif;
+    padding:120px 0;
+  }
+  .deck{
+    display:flex;
+    gap:84px;
+    overflow-x:auto;
+    padding:24px 72px 72px;
+  }
+  .slide{
+    flex: 0 0 auto;
+    width:1080px;
+    height:1350px;
+    background:var(--bg);
+    position:relative;
+    overflow:hidden;
+    box-shadow:0 60px 120px rgba(0,0,0,0.8);
+    color:var(--text);
+    padding: 105px;
+    display: flex;
+    flex-direction: column;
+    border-radius: 48px;
+  }
+  
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: auto;
+  }
+  .handle {
+    font-size: 36px;
+    font-weight: 500;
+    color: var(--sub);
+  }
+  .handle span { color: var(--text); }
+  
+  .pn {
+    font-size: 42px;
+    font-weight: 800;
+    color: var(--accent);
+  }
+  
+  .eyebrow {
+    font-size: 36px;
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    margin-bottom: 36px;
+    font-weight: 800;
+  }
+  
+  .headline {
+    font-size: 96px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 72px;
+  }
+  
+  .subtext {
+    font-size: 45px;
+    line-height: 1.5;
+    color: var(--sub);
+    font-weight: 300;
+  }
+
+  .footer-row {
+    margin-top: auto;
+    display: flex;
+    justify-content: space-between;
+    font-size: 33px;
+    color: var(--sub);
+    padding-top: 60px;
+    border-top: 3px solid rgba(255,255,255,0.1);
+  }
+  
+  /* Glowing orb effect */
+  .orb {
+    position: absolute;
+    width: 600px;
+    height: 600px;
+    background: var(--accent);
+    border-radius: 50%;
+    filter: blur(240px);
+    opacity: 0.15;
+    top: -150px;
+    right: -150px;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="carousel-deck">
+  <!-- SLIDE 1: COVER -->
+  <div class="slide cover">
+    <div class="orb"></div>
+    <div class="header-row">
+      <div class="handle">@<span>psychology__insight</span></div>
+      <div class="pn">01</div>
+    </div>
+    <div style="margin: auto 0;">
+      <div class="eyebrow" id="s1-eyebrow">Dark Truths</div>
+      <div class="headline" id="s1-headline">Perfectionism is a trauma response.</div>
+      <div class="subtext" id="s1-subtext">It's not about being flawless. It's about being safe from criticism.</div>
+    </div>
+    <div class="footer-row">
+      <span>R. Preethi, Psychologist</span>
+      <span>01 / 04</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>

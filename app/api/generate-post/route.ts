@@ -6,7 +6,12 @@ interface CarouselContent {
   s1: { eyebrow: string; headline: string; subtext: string };
   s2: { eyebrow: string; headline: string; subtext: string };
   s3: { eyebrow: string; headline: string; subtext: string };
-  s4: { eyebrow: string; headline: string; ctaLabel: string; ctaAction: string };
+  s4: {
+    eyebrow: string;
+    headline: string;
+    ctaLabel: string;
+    ctaAction: string;
+  };
   caption: string;
   hashtags: string[];
 }
@@ -19,13 +24,21 @@ function getClient() {
 }
 
 // ─── TEXT GENERATION (Carousel + Caption) ────────────────
-async function generateCarouselText(content: string): Promise<CarouselContent> {
+async function generateCarouselText(
+  content: string,
+  goal: string,
+  tone: string,
+): Promise<CarouselContent> {
   const openrouter = getClient();
 
   const prompt = `You are an expert Instagram content creator specializing in psychology.
 Create a 4-slide carousel text package from this topic:
 
 "${content}"
+
+Creative Direction:
+- Goal: ${goal}
+- Tone: ${tone}
 
 Rules:
 - Output ONLY valid JSON, no markdown, no code fences.
@@ -57,7 +70,9 @@ Return exactly this JSON structure:
   let fullResponse = "";
 
   if (Symbol.asyncIterator in Object(stream)) {
-    for await (const chunk of stream as AsyncIterable<any>) {
+    for await (const chunk of stream as AsyncIterable<
+      unknown & { choices?: { delta?: { content?: string } }[] }
+    >) {
       const delta = chunk.choices?.[0]?.delta?.content;
       if (delta) {
         fullResponse += delta;
@@ -65,7 +80,9 @@ Return exactly this JSON structure:
     }
   } else {
     // Non-streaming fallback
-    const result = stream as any;
+    const result = stream as unknown as {
+      choices?: { message?: { content?: string } }[];
+    };
     fullResponse = result.choices?.[0]?.message?.content ?? "";
   }
 
@@ -94,22 +111,24 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const content = body?.content;
+    const goal = body?.goal || "Educational";
+    const tone = body?.tone || "Professional";
 
     if (!content || typeof content !== "string" || !content.trim()) {
       return NextResponse.json(
         { error: "content is required and must be a non-empty string" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (content.length > 1000) {
       return NextResponse.json(
         { error: "Content must be under 1000 characters" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const post = await generateCarouselText(content.trim());
+    const post = await generateCarouselText(content.trim(), goal, tone);
 
     return NextResponse.json({
       success: true,

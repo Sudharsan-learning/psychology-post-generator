@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Data Visual Template</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F0FDF4;
+    --text: #064E3B;
+    --accent: #10B981;
+    --border: #A7F3D0;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:#0d0d0d;
+    font-family:'Inter', sans-serif;
+    padding:120px 0;
+  }
+  .deck{
+    display:flex;
+    gap:84px;
+    overflow-x:auto;
+    padding:24px 72px 72px;
+  }
+  .slide{
+    flex: 0 0 auto;
+    width:1080px;
+    height:1350px;
+    background:var(--bg);
+    position:relative;
+    overflow:hidden;
+    box-shadow:0 36px 90px rgba(0,0,0,0.45);
+    color:var(--text);
+    padding: 90px;
+    display: flex;
+    flex-direction: column;
+    border: 24px solid var(--bg);
+    border-radius: 60px;
+  }
+  .slide::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border: 6px solid var(--border);
+    pointer-events: none;
+    border-radius: 36px;
+  }
+  
+  .header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 3px solid var(--border);
+    padding-bottom: 45px;
+    margin-bottom: 60px;
+  }
+  .handle {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 30px;
+    font-weight: 700;
+  }
+  .pn {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 36px;
+    background: var(--accent);
+    color: white;
+    padding: 6px 18px;
+    border-radius: 12px;
+  }
+  
+  .eyebrow {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 33px;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+  
+  .headline {
+    font-size: 78px;
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: 60px;
+  }
+  
+  .subtext {
+    font-size: 42px;
+    line-height: 1.6;
+    background: white;
+    padding: 45px;
+    border-radius: 24px;
+    border: 3px solid var(--border);
+    flex-grow: 1;
+  }
+
+  .footer-row {
+    margin-top: 60px;
+    display: flex;
+    justify-content: space-between;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 27px;
+    opacity: 0.6;
+    border-top: 3px dashed var(--border);
+    padding-top: 45px;
+  }
+</style>
+</head>
+<body>
+<div class="deck" id="carousel-deck">
+  <!-- SLIDE 1: COVER -->
+  <div class="slide cover">
+    <div class="header-row">
+      <div class="handle">@<span>psychology__insight</span></div>
+      <div class="pn">01</div>
+    </div>
+    <div class="eyebrow" id="s1-eyebrow">Data Point</div>
+    <div class="headline" id="s1-headline">80% of anxiety is rooted in uncertainty.</div>
+    <div class="subtext" id="s1-subtext">The brain perceives the unknown as a threat. By defining the fear, you disarm it.</div>
+    <div class="footer-row">
+      <span>R. Preethi, Psychologist</span>
+      <span>01 / 04</span>
+    </div>
+  </div>
+</div>
+</body>
+</html>
