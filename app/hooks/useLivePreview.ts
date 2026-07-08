@@ -27,11 +27,90 @@ export function useLivePreview(
         html = builder(slides, config, theme);
       }
 
-      // Inject platform aspect ratio & size overrides dynamically
+      // Inject platform aspect ratio & size overrides, and a script to auto-scale slides to fit viewport vertically without scrollbars
       const sizeOverride = `
       <style>
         ${getPlatformSizeOverrides(config.platform)}
       </style>
+      <script>
+        (function() {
+          window.addEventListener('DOMContentLoaded', () => {
+            const slides = Array.from(document.querySelectorAll('.slide'));
+            if (slides.length === 0) return;
+            
+            const container = document.createElement('div');
+            container.className = 'slides-container';
+            container.style.display = 'flex';
+            container.style.gap = '20px';
+            container.style.transformOrigin = 'top left';
+            container.style.position = 'absolute';
+            container.style.top = '0';
+            container.style.left = '0';
+            
+            document.body.style.margin = '0';
+            document.body.style.padding = '0';
+            document.body.style.overflow = 'hidden';
+            document.body.style.width = '100vw';
+            document.body.style.height = '100vh';
+            document.body.style.position = 'relative';
+            
+            slides[0].parentNode.insertBefore(container, slides[0]);
+            slides.forEach(slide => container.appendChild(slide));
+            
+            const scrollWrapper = document.createElement('div');
+            scrollWrapper.className = 'scroll-wrapper';
+            scrollWrapper.style.width = '100%';
+            scrollWrapper.style.height = '100%';
+            scrollWrapper.style.overflowX = 'auto';
+            scrollWrapper.style.overflowY = 'hidden';
+            scrollWrapper.style.position = 'relative';
+            scrollWrapper.style.display = 'flex';
+            scrollWrapper.style.alignItems = 'center';
+            scrollWrapper.style.padding = '10px';
+            
+            container.parentNode.insertBefore(scrollWrapper, container);
+            scrollWrapper.appendChild(container);
+            
+            const spacer = document.createElement('div');
+            spacer.className = 'scroll-spacer';
+            spacer.style.flex = '0 0 auto';
+            spacer.style.pointerEvents = 'none';
+            spacer.style.opacity = '0';
+            scrollWrapper.appendChild(spacer);
+            
+            function layout() {
+              const paddingY = 20; // padding top + bottom
+              const parentHeight = scrollWrapper.clientHeight - paddingY;
+              const slideHeight = slides[0].offsetHeight || 400;
+              const slideWidth = slides[0].offsetWidth || 320;
+              
+              let scale = 1;
+              if (parentHeight < slideHeight) {
+                scale = parentHeight / slideHeight;
+              }
+              
+              container.style.transform = \`scale(\${scale})\`;
+              
+              const totalOriginalWidth = slideWidth * slides.length + 20 * (slides.length - 1);
+              const scaledWidth = totalOriginalWidth * scale;
+              
+              container.style.width = \`\${totalOriginalWidth}px\`;
+              container.style.height = \`\${slideHeight}px\`;
+              
+              const topOffset = (scrollWrapper.clientHeight - slideHeight * scale) / 2;
+              container.style.top = \`\${topOffset}px\`;
+              container.style.left = '10px';
+              
+              spacer.style.width = \`\${scaledWidth + 20}px\`;
+              spacer.style.height = \`\${slideHeight * scale}px\`;
+            }
+            
+            layout();
+            window.addEventListener('resize', layout);
+            setTimeout(layout, 100);
+          });
+        })();
+      </script>
       `;
       if (html.includes("</head>")) {
         html = html.replace("</head>", `${sizeOverride}</head>`);

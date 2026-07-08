@@ -18,6 +18,7 @@ interface Props {
   chatMessages: Array<{ role: "user" | "assistant"; content: string }>;
   onSendChatMessage: (message: string) => Promise<void>;
   onResetChat: () => void;
+  platform: "instagram" | "facebook" | "linkedin" | "whatsapp";
 }
 
 export default function SlideBuilder({
@@ -33,6 +34,7 @@ export default function SlideBuilder({
   chatMessages,
   onSendChatMessage,
   onResetChat,
+  platform,
 }: Props) {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -53,8 +55,10 @@ export default function SlideBuilder({
     reader.readAsDataURL(file);
   };
 
+  const colors = getPlatformColors(platform);
+
   return (
-    <div className="flex flex-col gap-6 h-full overflow-y-auto pr-1 relative">
+    <div className="flex flex-col gap-6 relative">
 
       {/* Post Title */}
       <section className="flex flex-col gap-2">
@@ -158,9 +162,9 @@ export default function SlideBuilder({
             <button
               key={src}
               onClick={() => onUpdateConfig("contentSource", src)}
-              className={`flex-1 py-2 text-sm font-semibold transition-all ${
+              className={`flex-1 py-2 text-sm font-semibold transition-all whitespace-nowrap flex-shrink-0 ${
                 config.contentSource === src
-                  ? "bg-gradient-to-r from-purple-600 to-pink-600 text-white"
+                  ? `bg-gradient-to-r ${colors.btnGradient} text-white`
                   : theme === "dark"
                   ? "bg-neutral-900 text-neutral-400 hover:text-neutral-200"
                   : "bg-white text-neutral-500 hover:text-neutral-800"
@@ -228,7 +232,7 @@ export default function SlideBuilder({
                 key={i}
                 className={`flex flex-col max-w-[85%] rounded-lg px-2.5 py-2 ${
                   msg.role === "user"
-                    ? "self-end bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium"
+                    ? `self-end bg-gradient-to-r ${colors.btnGradient} text-white font-medium`
                     : theme === "dark"
                     ? "self-start bg-neutral-900 border border-neutral-800 text-neutral-200"
                     : "self-start bg-white border border-neutral-200 text-neutral-800 shadow-sm"
@@ -264,7 +268,7 @@ export default function SlideBuilder({
               <button
                 type="submit"
                 disabled={isGenerating}
-                className="px-3 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 text-white font-bold hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center"
+                className={`px-3 rounded-lg bg-gradient-to-r ${colors.btnGradient} text-white font-bold hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center justify-center`}
               >
                 {isGenerating ? (
                   <span className="animate-spin text-xs font-sans">◌</span>
@@ -282,7 +286,7 @@ export default function SlideBuilder({
                 type="button"
                 onClick={() => onSendChatMessage("Make the cover headline more punchy")}
                 disabled={isGenerating || chatMessages.length <= 1}
-                className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                className={`text-[10px] px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
                   theme === "dark"
                     ? "bg-neutral-900 text-neutral-400 border border-neutral-800 hover:text-neutral-200 hover:bg-neutral-800"
                     : "bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50"
@@ -294,7 +298,7 @@ export default function SlideBuilder({
                 type="button"
                 onClick={() => onSendChatMessage("Add actionable bullet points to the body text of slide 2")}
                 disabled={isGenerating || chatMessages.length <= 1}
-                className={`text-[10px] px-2 py-1 rounded transition-colors ${
+                className={`text-[10px] px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
                   theme === "dark"
                     ? "bg-neutral-900 text-neutral-400 border border-neutral-800 hover:text-neutral-200 hover:bg-neutral-800"
                     : "bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50"
@@ -305,7 +309,7 @@ export default function SlideBuilder({
               <button
                 type="button"
                 onClick={onResetChat}
-                className="text-[10px] px-2 py-1 rounded border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors ml-auto"
+                className="text-[10px] px-2 py-1 rounded border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors ml-auto whitespace-nowrap flex-shrink-0"
               >
                 Reset Chat
               </button>
@@ -339,6 +343,7 @@ export default function SlideBuilder({
             onUpdate={(field, value) => onUpdateSlide(slide.id, field, value)}
             onRemove={() => onRemoveSlide(slide.id)}
             onMove={(dir) => onMoveSlide(slide.id, dir)}
+            platform={platform}
           />
         ))}
       </section>
@@ -404,14 +409,16 @@ interface CardProps {
   onUpdate: (field: keyof Slide, value: string) => void;
   onRemove: () => void;
   onMove: (dir: "up" | "down") => void;
+  platform: string;
 }
 
-function SlideCard({ theme, slide, index, total, onUpdate, onRemove, onMove }: CardProps) {
+function SlideCard({ theme, slide, index, total, onUpdate, onRemove, onMove, platform }: CardProps) {
   const label = index === 0 ? "Cover" : slide.isCta ? "CTA" : `Slide ${index + 1}`;
+  const colors = getPlatformColors(platform);
   const accent = index === 0 
-    ? "border-pink-500/60 shadow-[0_0_10px_rgba(236,72,153,0.15)]" 
+    ? colors.accentBorder 
     : slide.isCta 
-    ? "border-purple-500/60 shadow-[0_0_10px_rgba(168,85,247,0.15)]" 
+    ? colors.ctaBorder 
     : theme === "dark"
     ? "border-neutral-800"
     : "border-neutral-200";
@@ -545,3 +552,37 @@ function Field({
     </div>
   );
 }
+
+const getPlatformColors = (platform: string) => {
+  switch (platform) {
+    case "facebook":
+    case "linkedin":
+      return {
+        accentBorder: "border-blue-500/60 shadow-[0_0_10px_rgba(37,99,235,0.15)]",
+        ctaBorder: "border-indigo-500/60 shadow-[0_0_10px_rgba(99,102,241,0.15)]",
+        btnGradient: "from-blue-600 to-indigo-600",
+        btnHover: "hover:bg-blue-700",
+        messageUser: "bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-medium",
+        btnText: "text-blue-500",
+      };
+    case "whatsapp":
+      return {
+        accentBorder: "border-green-500/60 shadow-[0_0_10px_rgba(34,197,94,0.15)]",
+        ctaBorder: "border-emerald-500/60 shadow-[0_0_10px_rgba(16,185,129,0.15)]",
+        btnGradient: "from-green-500 to-emerald-600",
+        btnHover: "hover:bg-green-600",
+        messageUser: "bg-gradient-to-r from-green-500 to-emerald-600 text-white font-medium",
+        btnText: "text-green-500",
+      };
+    case "instagram":
+    default:
+      return {
+        accentBorder: "border-pink-500/60 shadow-[0_0_10px_rgba(236,72,153,0.15)]",
+        ctaBorder: "border-purple-500/60 shadow-[0_0_10px_rgba(168,85,247,0.15)]",
+        btnGradient: "from-purple-600 to-pink-600",
+        btnHover: "hover:from-purple-700 hover:to-pink-700",
+        messageUser: "bg-gradient-to-r from-purple-600 to-pink-600 text-white font-medium",
+        btnText: "text-pink-500",
+      };
+  }
+};

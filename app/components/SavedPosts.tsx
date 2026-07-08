@@ -27,6 +27,7 @@ interface SavedPostsProps {
   ) => void;
   onNewPost: () => void;
   activePostId: string | null;
+  platform: "instagram" | "facebook" | "linkedin" | "whatsapp";
 }
 
 export default function SavedPosts({
@@ -34,6 +35,7 @@ export default function SavedPosts({
   onLoadPost,
   onNewPost,
   activePostId,
+  platform,
 }: SavedPostsProps) {
   const [posts, setPosts] = useState<PostItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -95,6 +97,8 @@ export default function SavedPosts({
     }
   };
 
+  const colors = getPlatformColors(platform);
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center justify-between mb-4">
@@ -105,7 +109,7 @@ export default function SavedPosts({
         </h3>
         <button
           onClick={onNewPost}
-          className="text-[10px] font-bold px-2 py-1 rounded bg-pink-500 hover:bg-pink-600 text-white transition-all shadow-sm flex items-center gap-1"
+          className={`text-[10px] font-bold px-2 py-1 rounded ${colors.btnBg} text-white transition-all shadow-sm flex items-center gap-1`}
         >
           <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -122,7 +126,7 @@ export default function SavedPosts({
 
       {isLoading ? (
         <div className="flex-1 flex items-center justify-center py-10">
-          <div className="w-5 h-5 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
+          <div className={`w-5 h-5 border-2 ${colors.spinnerBorder} border-t-transparent rounded-full animate-spin`} />
         </div>
       ) : posts.length === 0 ? (
         <div className={`flex-1 flex flex-col items-center justify-center text-center py-10 px-4 rounded-xl border border-dashed ${
@@ -158,7 +162,7 @@ export default function SavedPosts({
                 }
                 className={`group p-3 rounded-xl border text-left cursor-pointer transition-all ${
                   isEditing
-                    ? "bg-pink-500/10 border-pink-500/30"
+                    ? colors.activeCard
                     : theme === "dark"
                     ? "bg-neutral-900 border-neutral-800/80 hover:bg-neutral-800 hover:border-neutral-700"
                     : "bg-white border-neutral-250 hover:bg-neutral-50 hover:border-neutral-300"
@@ -178,7 +182,7 @@ export default function SavedPosts({
                       <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase bg-neutral-800 text-neutral-400 border border-neutral-700/50">
                         {post.activeTemplate}
                       </span>
-                      <span className="text-[9px] font-semibold text-pink-500">
+                      <span className={`text-[9px] font-semibold ${colors.textAccent}`}>
                         {slideCount} slide{slideCount !== 1 ? "s" : ""}
                       </span>
                     </div>
@@ -201,12 +205,12 @@ export default function SavedPosts({
                   </span>
                   <div className="flex items-center gap-2">
                     {isEditing ? (
-                      <span className="text-[9px] font-bold text-pink-500 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-pink-500 animate-pulse" />
+                      <span className={`text-[9px] font-bold ${colors.textAccent} flex items-center gap-1`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${colors.bgAccent} animate-pulse`} />
                         Active
                       </span>
                     ) : (
-                      <span className="text-[10px] text-pink-500 font-semibold group-hover:underline flex items-center gap-0.5">
+                      <span className={`text-[10px] ${colors.textAccent} font-semibold group-hover:underline flex items-center gap-0.5`}>
                         Edit Draft
                         <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
@@ -223,3 +227,34 @@ export default function SavedPosts({
     </div>
   );
 }
+
+const getPlatformColors = (platform: string) => {
+  switch (platform) {
+    case "facebook":
+    case "linkedin":
+      return {
+        btnBg: "bg-blue-600 hover:bg-blue-700",
+        spinnerBorder: "border-blue-500",
+        activeCard: "bg-blue-500/10 border-blue-500/30",
+        textAccent: "text-blue-500",
+        bgAccent: "bg-blue-500",
+      };
+    case "whatsapp":
+      return {
+        btnBg: "bg-green-600 hover:bg-green-700",
+        spinnerBorder: "border-green-500",
+        activeCard: "bg-green-500/10 border-green-500/30",
+        textAccent: "text-green-500",
+        bgAccent: "bg-green-500",
+      };
+    case "instagram":
+    default:
+      return {
+        btnBg: "bg-pink-500 hover:bg-pink-600",
+        spinnerBorder: "border-pink-500",
+        activeCard: "bg-pink-500/10 border-pink-500/30",
+        textAccent: "text-pink-500",
+        bgAccent: "bg-pink-500",
+      };
+  }
+};
