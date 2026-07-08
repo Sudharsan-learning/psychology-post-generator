@@ -1,59 +1,30 @@
 @import "tailwindcss";
 
-:root {
-  --background: #f5f5f5;
-  --foreground: #111111;
-  --border: #e5e5e5;
-  --surface: #ffffff;
-  --primary: #3b82f6; /* Blue for primary actions */
-  --primary-foreground: #ffffff;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-border: var(--border);
-  --color-surface: var(--surface);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --border: #262626;
-    --surface: #171717;
+@layer components {
+  .input {
+    @apply w-full bg-neutral-900 border border-neutral-800 rounded-lg px-3 py-2 text-sm text-neutral-100
+           placeholder:text-neutral-600
+           focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500
+           transition-colors;
+  }
+  .light .input {
+    @apply bg-neutral-100 border border-neutral-200 text-neutral-900 placeholder:text-neutral-400
+           focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500;
   }
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-sans, system-ui, sans-serif);
-  margin: 0;
-  min-height: 100vh;
-}
-
-/* Custom scrollbar for a sleek dashboard feel */
+/* Smooth scrollbar for dark panels */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 10px;
+  background: #334155;
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a3a3a3;
+  background: #475569;
 }
-

@@ -1,760 +1,635 @@
 "use client";
 
-import { useState, useEffect, useRef, ChangeEvent, FormEvent } from "react";
-import axios from "axios";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useUser, useClerk } from "@clerk/nextjs";
+import { useSlides } from "@/hooks/useSlides";
+import { useLivePreview } from "@/hooks/useLivePreview";
+import SlideBuilder from "@/components/SlideBuilder";
+import LivePreview from "@/components/LivePreview";
+import TemplateGallery from "@/components/TemplateGallery";
+import SavedPosts from "@/components/SavedPosts";
+import OnboardingModal from "@/components/OnboardingModal";
+import ErrorBoundary from "@/components/ErrorBoundary";
+
+type Tab = "gallery" | "creator" | "preview" | "saved";
 
 export default function Home() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loggedInUsername, setLoggedInUsername] = useState("");
-
-  const [activeTab, setActiveTab] = useState<"creator" | "gallery" | "preview">("creator");
-  
-  // Form State
-  const [contentSource, setContentSource] = useState<"ai" | "custom">("ai");
-  const [content, setContent] = useState("");
-  const [goal, setGoal] = useState("Educational");
-  const [tone, setTone] = useState("Professional");
-  const [authorName, setAuthorName] = useState("Jane Doe");
-  const [pageName, setPageName] = useState("@jane.psych");
-
-  // Custom Slides State (Dynamic up to 10)
-  const [customSlides, setCustomSlides] = useState([
-    { eyebrow: "", headline: "", subtext: "" },
-    { eyebrow: "", headline: "", subtext: "" },
-    { eyebrow: "", headline: "", subtext: "" },
-    { eyebrow: "", headline: "", subtext: "", ctaLabel: "Next Step", ctaAction: "Save this post." },
-  ]);
-  const [customCaption, setCustomCaption] = useState("");
-  const [customHashtags, setCustomHashtags] = useState("");
-
-  // Template State
-  const [activeTemplatePath, setActiveTemplatePath] = useState("/post-template.html");
-  const [customTemplateFile, setCustomTemplateFile] = useState<File | null>(null);
-  const [customTemplateHtml, setCustomTemplateHtml] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  // Generation State
-  const [loading, setLoading] = useState(false);
-  const [downloadingPng, setDownloadingPng] = useState(false);
-  const [error, setError] = useState("");
-  const [post, setPost] = useState<any>(null);
-  const [templateHtml, setTemplateHtml] = useState("");
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-
   const router = useRouter();
+  const { isLoaded, isSignedIn, user } = useUser();
+  const { signOut } = useClerk();
+  
+  const [activeTab, setActiveTab] = useState<Tab>("creator");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    // Check local storage for login
-    if (typeof window !== "undefined") {
-      const auth = localStorage.getItem("auth");
-      if (!auth) {
-        router.push("/login");
-      } else {
-        setIsLoggedIn(true);
-        setLoggedInUsername(localStorage.getItem("username") || "U");
-      }
+    const savedTheme = localStorage.getItem("theme") as "dark" | "light" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
     }
-  }, [router]);
-
-  useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data?.action === 'png_ready') {
-        setDownloadingPng(false);
-        e.data.images.forEach((img: string, i: number) => {
-          setTimeout(() => {
-            const a = document.createElement("a");
-            a.href = img;
-            a.download = `carousel-slide-${i + 1}.png`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-          }, i * 300);
-        });
-      }
-    };
-    window.addEventListener("message", handleMessage);
-    return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  const handleLogout = () => {
-    setIsLoggedIn(false);
-    localStorage.removeItem("auth");
-    localStorage.removeItem("username");
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    setTheme(nextTheme);
+    localStorage.setItem("theme", nextTheme);
+  };
+
+  const {
+    slides, setSlides, config, activeTemplate, customTemplateHtml,
+    isGenerating, setIsGenerating,
+    setActiveTemplate, setCustomTemplateHtml,
+    updateSlide, updateConfig, addSlide, removeSlide, moveSlide,
+    currentPostId, setCurrentPostId, setConfig, resetSlides,
+    chatMessages, setChatMessages,
+  } = useSlides();
+
+  // Live preview — rebuilds 300ms after any slide/config change
+  const previewHtml = useLivePreview(slides, config, activeTemplate, customTemplateHtml, theme);
+
+  const username = user?.username || user?.primaryEmailAddress?.emailAddress || "creator";
+
+  const handleLogout = async () => {
+    await signOut();
     router.push("/login");
   };
 
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setCustomTemplateFile(file);
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        if (evt.target?.result) {
-          setCustomTemplateHtml(evt.target.result as string);
-          alert(`Successfully loaded custom template: ${file.name}`);
-        }
-      };
-      reader.readAsText(file);
-    }
-  };
+  // AI Conversational Send Handler — uses functional state updater to avoid stale closures
+  const handleSendChatMessage = useCallback(async (messageText: string) => {
+    if (!messageText.trim()) return;
 
-  const handleSlideChange = (index: number, field: string, value: string) => {
-    const newSlides = [...customSlides];
-    newSlides[index] = { ...newSlides[index], [field]: value };
-    setCustomSlides(newSlides);
-  };
-
-  const addSlide = () => {
-    if (customSlides.length < 10) {
-      const newSlides = [...customSlides];
-      const newSlide = { eyebrow: "", headline: "", subtext: "" };
-      newSlides.splice(newSlides.length - 1, 0, newSlide);
-      setCustomSlides(newSlides);
-    }
-  };
-
-  const removeSlide = (indexToRemove: number) => {
-    if (customSlides.length > 2) {
-      const newSlides = customSlides.filter((_, idx) => idx !== indexToRemove);
-      setCustomSlides(newSlides);
-    }
-  };
-
-  async function generatePost() {
-    if (contentSource === "ai" && !content.trim()) {
-      setError("Please enter a psychology topic first!");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-    setPost(null);
-    setTemplateHtml("");
+    const newUserMessage = { role: "user" as const, content: messageText };
+    const updatedMessages = [...chatMessages, newUserMessage];
+    
+    setChatMessages(updatedMessages);
+    setIsGenerating(true);
 
     try {
-      let finalPostData: any = {};
-      let normalizedSlides: any[] = [];
+      const res = await fetch("/api/generate-post", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: updatedMessages,
+          currentSlides: slides,
+          caption: config.caption,
+          hashtags: config.hashtags,
+          activeTemplate: activeTemplate,
+          platform: config.platform,
+        }),
+      });
 
-      if (contentSource === "ai") {
-        const res = await axios.post("/api/generate-post", {
-          content: content.trim(),
-          goal,
-          tone
-        });
-        finalPostData = res.data.post;
-        normalizedSlides = [
-          finalPostData.s1,
-          finalPostData.s2,
-          finalPostData.s3,
-          finalPostData.s4
-        ];
-      } else {
-        finalPostData = {
-          caption: customCaption,
-          hashtags: customHashtags.split(' ').filter(t => t.startsWith('#'))
-        };
-        normalizedSlides = customSlides;
-      }
-
-      setPost(finalPostData);
-
-      // Resolve HTML source
-      let html = "";
-      if (customTemplateHtml) {
-        html = customTemplateHtml;
-      } else {
-        const templateRes = await fetch(activeTemplatePath);
-        html = await templateRes.text();
-      }
-      
-      // Dynamic DOM injection for robust multi-slide templating
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, "text/html");
-      const deck = doc.getElementById('carousel-deck');
-      
-      if (deck) {
-        const originalSlides = Array.from(deck.querySelectorAll('.slide'));
-        if (originalSlides.length > 0) {
-          const coverTemplate = originalSlides[0].cloneNode(true) as HTMLElement;
-          const contentTemplate = (originalSlides[1] || originalSlides[0]).cloneNode(true) as HTMLElement;
-          const closingTemplate = (originalSlides[originalSlides.length - 1] || originalSlides[0]).cloneNode(true) as HTMLElement;
-          
-          deck.innerHTML = '';
-          const total = normalizedSlides.length;
-
-          normalizedSlides.forEach((slideData, idx) => {
-            const isFirst = idx === 0;
-            const isLast = idx === total - 1;
-            
-            let slideEl = isFirst ? coverTemplate.cloneNode(true) as HTMLElement : 
-                          isLast ? closingTemplate.cloneNode(true) as HTMLElement : 
-                          contentTemplate.cloneNode(true) as HTMLElement;
-            
-            const numStr = String(idx + 1).padStart(2, '0');
-            
-            const pn = slideEl.querySelector('.pn');
-            if (pn) pn.textContent = numStr;
-            const ghostNum = slideEl.querySelector('.ghost-num');
-            if (ghostNum) ghostNum.textContent = numStr;
-            
-            const eyebrowEl = slideEl.querySelector('.eyebrow');
-            if (eyebrowEl) eyebrowEl.innerHTML = slideData.eyebrow || '';
-            
-            const headlineEl = slideEl.querySelector('.headline');
-            if (headlineEl) headlineEl.innerHTML = slideData.headline || '';
-            
-            const subtextEl = slideEl.querySelector('.subtext');
-            if (subtextEl) subtextEl.innerHTML = slideData.subtext || '';
-
-            if (isLast) {
-              const ctaLabelEl = slideEl.querySelector('.cta-box .label');
-              if (ctaLabelEl) ctaLabelEl.innerHTML = slideData.ctaLabel || '';
-              
-              const ctaActionEl = slideEl.querySelector('.cta-box .action');
-              if (ctaActionEl) ctaActionEl.innerHTML = slideData.ctaAction || '';
-            }
-
-            const footerSpans = slideEl.querySelectorAll('.footer-row span');
-            if (footerSpans.length >= 1) {
-              footerSpans[0].textContent = authorName; 
-            }
-            if (footerSpans.length >= 2) {
-              footerSpans[1].textContent = `${numStr} / ${String(total).padStart(2, '0')}`;
-            }
-
-            const handleSpan = slideEl.querySelector('.handle span');
-            if (handleSpan) handleSpan.textContent = pageName.replace('@', '');
-
-            deck.appendChild(slideEl);
-          });
+      if (!res.ok) {
+        let errMessage = "Generation failed";
+        try {
+          const errData = await res.json();
+          if (errData.error) errMessage = errData.error;
+        } catch {
+          // ignore parse error
         }
+        throw new Error(errMessage);
       }
 
-      const scriptInjection = `
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-        <script>
-          window.addEventListener('message', async (e) => {
-            if (e.data.action === 'download_png') {
-              const slides = document.querySelectorAll('.slide');
-              const images = [];
-              for (let i = 0; i < slides.length; i++) {
-                const canvas = await html2canvas(slides[i], { scale: 1, backgroundColor: '#F6F2E9' });
-                images.push(canvas.toDataURL('image/png'));
-              }
-              window.parent.postMessage({ action: 'png_ready', images }, '*');
-            }
-          });
-        </script>
-      </body>
-      `;
-      let finalHtml = doc.documentElement.outerHTML;
-      finalHtml = finalHtml.replace('</body>', scriptInjection);
+      const data = await res.json();
+      if (data.success) {
+        const assistantMessageText = data.assistant_message || "Done! I have updated the slides.";
+        setChatMessages((prev) => [...prev, { role: "assistant", content: assistantMessageText }]);
 
-      setTemplateHtml(finalHtml);
-      setActiveTab("preview");
-    } catch (err: unknown) {
-      if (axios.isAxiosError(err)) {
-        setError(err.response?.data?.error || "Failed to generate post. Please try again.");
+        if (data.post) {
+          if (data.post.slides && Array.isArray(data.post.slides)) {
+            setSlides(
+              data.post.slides.map((s: Record<string, unknown>) => ({
+                id: (s.id as string) || crypto.randomUUID(),
+                eyebrow: (s.eyebrow as string) || "",
+                headline: (s.headline as string) || "",
+                subtext: (s.subtext as string) || "",
+                isCta: !!s.isCta,
+                ctaText: (s.ctaText as string) || "",
+              }))
+            );
+          }
+          if (data.post.caption) {
+            updateConfig("caption", data.post.caption);
+          }
+          if (data.post.hashtags && Array.isArray(data.post.hashtags)) {
+            updateConfig("hashtags", data.post.hashtags.join(" "));
+          }
+        }
       } else {
-        setError("Something went wrong. Please try again.");
+        throw new Error(data.error || "Failed to process chat message");
       }
+    } catch (err) {
       console.error(err);
+      const errorMessage = err instanceof Error ? err.message : "Something went wrong.";
+      setChatMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: `❌ Error: ${errorMessage}. Please modify your request or try again.` }
+      ]);
     } finally {
-      setLoading(false);
+      setIsGenerating(false);
     }
-  }
+  }, [chatMessages, slides, config, activeTemplate, setSlides, updateConfig, setIsGenerating]);
 
-  const downloadHtml = () => {
-    const blob = new Blob([templateHtml], { type: "text/html" });
+  const resetChat = useCallback(() => {
+    setChatMessages([
+      {
+        role: "assistant",
+        content: "Hey! What would you like to create today? Describe your topic, goal, and tone, and I'll generate the slides. You can also refine them with me at any time!"
+      }
+    ]);
+  }, []);
+
+  // Download handlers
+  const handleDownloadHtml = useCallback(() => {
+    const blob = new Blob([previewHtml], { type: "text/html" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "instagram-carousel-preview.html";
-    document.body.appendChild(a);
+    a.download = `social-carousel-${Date.now()}.html`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  };
+  }, [previewHtml]);
 
-  const triggerPngDownload = () => {
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      setDownloadingPng(true);
-      iframeRef.current.contentWindow.postMessage({ action: 'download_png' }, '*');
-    }
-  };
+  const handleDownloadPng = useCallback(() => {
+    // Posts message to iframe; iframe runs dom-to-image-more per slide
+    const iframe = document.querySelector<HTMLIFrameElement>("iframe[title='Carousel preview']");
+    iframe?.contentWindow?.postMessage({ type: "DOWNLOAD_PNG" }, "*");
+  }, []);
 
-  const handleAutofill = () => {
-    if (contentSource === "ai") {
-      setContent("The psychology behind why we procrastinate even when we know it's bad for us.");
-      setGoal("Educational");
-      setTone("Empathetic");
+  const handleShare = useCallback(async () => {
+    const textToShare = `${config.caption || ""}\n\n${config.hashtags || ""}`.trim();
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: `SwipePosts - ${config.topic || "Post"}`,
+          text: textToShare,
+          url: window.location.origin,
+        });
+      } catch (err) {
+        console.error("Sharing failed:", err);
+      }
     } else {
-      setCustomSlides([
-        { eyebrow: "Daily Note", headline: "Why we wait", subtext: "Understanding the delay" },
-        { eyebrow: "Observation", headline: "Fear of failure", subtext: "We avoid the task to avoid the judgment." },
-        { eyebrow: "Reframe", headline: "Action precedes motivation", subtext: "Start small." },
-        { eyebrow: "Closing", headline: "One step today.", subtext: "", ctaLabel: "Next Step", ctaAction: "Try 5 mins now." }
+      navigator.clipboard.writeText(textToShare);
+      // We will show our standard SlideBuilder toast by sending a postMessage or triggering it, 
+      // but since we want it quick, a simple alert is fine as a fallback or we can show a console log.
+      alert("Natively sharing is not supported by your browser. Caption and hashtags copied to clipboard!");
+    }
+  }, [config.caption, config.hashtags, config.topic]);
+
+  const handleSaveDraft = useCallback(async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: currentPostId || undefined,
+          topic: config.topic,
+          caption: config.caption,
+          hashtags: config.hashtags,
+          slides,
+          activeTemplate,
+          platform: config.platform,
+          chatHistory: chatMessages,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.post?.id) {
+          setCurrentPostId(data.post.id);
+          localStorage.setItem("swipeposts_draft_post_id", data.post.id);
+          alert("Draft saved successfully!");
+        }
+      } else {
+        throw new Error("Failed to save draft");
+      }
+    } catch (e) {
+      alert("Error saving draft: " + (e instanceof Error ? e.message : "Unknown error"));
+    } finally {
+      setIsSaving(false);
+    }
+  }, [currentPostId, config, slides, activeTemplate, chatMessages, setCurrentPostId]);
+
+  const handleLoadPost = useCallback((
+    id: string,
+    loadedSlides: any[],
+    loadedConfig: any,
+    loadedTemplate: string,
+    loadedChatHistory?: any[]
+  ) => {
+    setCurrentPostId(id);
+    localStorage.setItem("swipeposts_draft_post_id", id);
+    setSlides(loadedSlides);
+    setConfig((prev) => ({
+      ...prev,
+      ...loadedConfig,
+    }));
+    setActiveTemplate(loadedTemplate);
+    if (loadedChatHistory && Array.isArray(loadedChatHistory)) {
+      setChatMessages(loadedChatHistory);
+    } else {
+      setChatMessages([
+        {
+          role: "assistant",
+          content: "Hey! What would you like to create today? Describe your topic, goal, and tone, and I'll generate the slides. You can also refine them with me at any time!"
+        }
       ]);
-      setCustomCaption("Procrastination is often emotional regulation, not a time management issue.");
-      setCustomHashtags("#psychology #procrastination");
+    }
+    setActiveTab("creator");
+  }, [setCurrentPostId, setSlides, setConfig, setActiveTemplate, setChatMessages]);
+
+  const handleNewPost = useCallback(() => {
+    setCurrentPostId(null);
+    localStorage.removeItem("swipeposts_draft_post_id");
+    resetSlides();
+    setConfig({
+      author: "creator_handle",
+      topic: "",
+      goal: "educate",
+      tone: "professional",
+      caption: "",
+      hashtags: "#creativity #inspiration #marketing",
+      contentSource: "custom",
+      bgImage: null,
+      platform: "instagram",
+    });
+    setChatMessages([
+      {
+        role: "assistant",
+        content: "Hey! What would you like to create today? Describe your topic, goal, and tone, and I'll generate the slides. You can also refine them with me at any time!"
+      }
+    ]);
+    setActiveTemplate("clinical");
+    setCustomTemplateHtml(null);
+    setActiveTab("creator");
+  }, [setCurrentPostId, resetSlides, setConfig, setActiveTemplate, setCustomTemplateHtml, setChatMessages]);
+
+  if (!isLoaded || !isSignedIn) return null;
+
+  const getPlatformBranding = (platform: "instagram" | "facebook" | "linkedin" | "whatsapp") => {
+    const isDark = theme === "dark";
+    switch (platform) {
+      case "facebook":
+        return {
+          gradient: "from-blue-600 to-blue-800",
+          shadow: "shadow-blue-500/25",
+          text: "text-blue-500",
+          label: "Facebook",
+          bg: isDark ? "bg-blue-950/40" : "bg-blue-50",
+          iconColor: isDark ? "text-blue-400" : "text-blue-600",
+          icon: (
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95c4.56-.93 8-4.96 8-9.75z" />
+            </svg>
+          ),
+        };
+      case "linkedin":
+        return {
+          gradient: "from-sky-600 to-blue-800",
+          shadow: "shadow-sky-500/25",
+          text: "text-sky-600",
+          label: "LinkedIn",
+          bg: isDark ? "bg-sky-950/40" : "bg-sky-50",
+          iconColor: isDark ? "text-sky-400" : "text-sky-600",
+          icon: (
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.779-1.75-1.75s.784-1.75 1.75-1.75 1.75.779 1.75 1.75-.784 1.75-1.75 1.75zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+            </svg>
+          ),
+        };
+      case "whatsapp":
+        return {
+          gradient: "from-green-500 to-emerald-600",
+          shadow: "shadow-green-500/25",
+          text: "text-green-500",
+          label: "WhatsApp",
+          bg: isDark ? "bg-emerald-950/40" : "bg-emerald-50",
+          iconColor: isDark ? "text-emerald-400" : "text-emerald-600",
+          icon: (
+            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12.004 0C5.372 0 0 5.372 0 12.004c0 2.115.55 4.1 1.589 5.897L0 24l6.236-1.637a11.954 11.954 0 005.768 1.492h.005c6.627 0 12.003-5.378 12.003-12.005c0-3.21-1.25-6.23-3.518-8.498A11.916 11.916 0 0012.004 0zm0 1.95c2.68 0 5.2.1 7.29 2.19c2.09 2.09 2.19 4.61 2.19 7.29s-.1 5.2-2.19 7.29c-2.09 2.09-4.61 2.19-7.29 2.19c-1.69 0-3.35-.44-4.81-1.28l-.34-.2l-3.58.94.96-3.49-.22-.35A10.007 10.007 0 012.2 12.004c0-5.405 4.394-9.8 9.8-9.8c0-.2.004-.254.004-.254z" />
+            </svg>
+          ),
+        };
+      case "instagram":
+      default:
+        return {
+          gradient: "from-yellow-500 via-red-500 via-pink-500 to-purple-600",
+          shadow: "shadow-pink-500/25",
+          text: "text-pink-500",
+          label: "Instagram",
+          bg: "bg-black",
+          iconColor: "text-white",
+          icon: (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+              <rect width="18" height="18" x="3" y="3" rx="5" />
+              <path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37zM17.5 6.5h.01" />
+            </svg>
+          ),
+        };
     }
   };
 
-  if (!isLoggedIn) {
-    return null; // Let the useEffect redirect
-  }
+  const brand = getPlatformBranding(config.platform || "instagram");
 
+  const TABS: { id: Tab; label: string }[] = [
+    { id: "gallery", label: "Gallery" },
+    { id: "creator", label: "Creator" },
+    { id: "saved", label: "Saved Drafts" },
+    { id: "preview", label: "Preview" },
+  ];
   return (
-    <div className="flex h-screen bg-neutral-100 text-neutral-900 font-sans overflow-hidden">
-      {/* LEFT SIDEBAR */}
-      <aside className="w-[320px] bg-white border-r border-neutral-200 flex flex-col h-full shadow-sm z-10 relative">
-        <div className="p-6 border-b border-neutral-100">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white font-bold text-sm shadow-md">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="20" x="2" y="2" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" x2="17.51" y1="6.5" y2="6.5"/></svg>
+    <ErrorBoundary>
+    <div className={`flex h-screen overflow-hidden font-sans flex-col md:flex-row ${theme} ${
+      theme === "dark" ? "bg-black text-neutral-100" : "bg-neutral-50 text-neutral-800"
+    }`}>
+      <OnboardingModal theme={theme} />
+
+      {/* Top Mobile Header */}
+      <header className={`md:hidden px-4 py-3 border-b flex items-center justify-between flex-shrink-0 ${
+        theme === "dark" ? "bg-neutral-950 border-neutral-800" : "bg-white border-neutral-200"
+      }`}>
+        <div className="flex items-center gap-2">
+          <div className={`w-7 h-7 rounded-lg bg-gradient-to-tr ${brand.gradient} p-[1.5px] flex items-center justify-center flex-shrink-0 shadow-sm ${brand.shadow}`}>
+            <div className={`w-full h-full rounded-[4.5px] ${brand.bg} flex items-center justify-center ${brand.iconColor}`}>
+              {brand.icon}
             </div>
-            <h1 className="font-bold text-xl tracking-tight text-neutral-800">Post Maker</h1>
           </div>
+          <span className={`text-sm font-bold tracking-wide ${
+            theme === "dark" ? "text-white" : "text-neutral-900"
+          }`}>SwipePosts</span>
         </div>
+        <button
+          onClick={toggleTheme}
+          className={`p-1.5 rounded-lg border text-sm flex items-center justify-center ${
+            theme === "dark"
+              ? "border-neutral-800 text-yellow-400 bg-neutral-900"
+              : "border-neutral-200 text-purple-600 bg-neutral-100"
+          }`}
+          title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
+        >
+          {theme === "dark" ? (
+            <svg className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 2.293a1 1 0 011.414 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zm2.707 5.707a1 1 0 011-1h1a1 1 0 110 2h-1a1 1 0 01-1-1zM14 15.707a1 1 0 010-1.414l.707-.707a1 1 0 111.414 1.414l-.707.707a1 1 0 01-1.414 0zm-4 1.293a1 1 0 011-1v-1a1 1 0 11-2 0v1a1 1 0 011 1zm-4-2.293a1 1 0 00-1.414 0l-.707.707a1 1 0 001.414 1.414l.707-.707a1 1 0 000-1.414zm-2.707-5.707a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zM6 4.293a1 1 0 000 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 0zM10 6a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+            </svg>
+          )}
+        </button>
+      </header>
 
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-800 mb-4 uppercase tracking-wider">Create Post</h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-neutral-500 mb-1">Author Name</label>
-                <input 
-                  type="text" 
-                  value={authorName} 
-                  onChange={e => setAuthorName(e.target.value)}
-                  className="w-full text-sm border border-neutral-200 rounded-md px-3 py-2 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="e.g. Jane Doe"
-                />
-              </div>
-              
-              <div>
-                <label className="block text-xs font-medium text-neutral-500 mb-1">Page Name</label>
-                <input 
-                  type="text" 
-                  value={pageName} 
-                  onChange={e => setPageName(e.target.value)}
-                  className="w-full text-sm border border-neutral-200 rounded-md px-3 py-2 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="e.g. @janepsychology"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-neutral-100">
-            <div className="flex justify-between items-center mb-2">
-              <label className="text-xs font-semibold text-neutral-800 uppercase tracking-wider">Content Source</label>
-              <div className="bg-neutral-100 p-1 rounded-md flex text-[10px] font-medium">
-                <button 
-                  onClick={() => setContentSource('custom')}
-                  className={`px-2 py-1 rounded-sm transition-colors ${contentSource === 'custom' ? 'bg-white shadow-sm text-neutral-800' : 'text-neutral-500 hover:text-neutral-700'}`}
-                >
-                  Custom
-                </button>
-                <button 
-                  onClick={() => setContentSource('ai')}
-                  className={`px-2 py-1 rounded-sm transition-colors ${contentSource === 'ai' ? 'bg-white shadow-sm text-neutral-800' : 'text-neutral-500 hover:text-neutral-700'}`}
-                >
-                  AI Gen
-                </button>
+      {/* Sidebar */}
+      <aside className={`w-56 flex-shrink-0 border-r flex flex-col hidden md:flex ${
+        theme === "dark" ? "bg-neutral-950 border-neutral-800" : "bg-white border-neutral-200"
+      }`}>
+        <div className={`px-5 py-5 border-b flex items-center justify-between ${
+          theme === "dark" ? "border-neutral-800" : "border-neutral-200"
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <div className={`w-8 h-8 rounded-lg bg-gradient-to-tr ${brand.gradient} p-[2px] flex items-center justify-center flex-shrink-0 shadow-sm ${brand.shadow}`}>
+              <div className={`w-full h-full rounded-[6px] ${brand.bg} flex items-center justify-center ${brand.iconColor}`}>
+                {brand.icon}
               </div>
             </div>
-
-            {contentSource === "ai" ? (
-              <textarea
-                placeholder="What's on your mind? Type your topic or caption idea here..."
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                className="w-full h-32 text-sm border border-neutral-200 rounded-lg p-3 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none transition-all mt-2 placeholder:text-neutral-400"
-              />
-            ) : (
-              <div className="text-xs text-neutral-500 mt-2 p-3 bg-blue-50/50 rounded-lg border border-blue-100/50">
-                You are in Custom mode. Write your slide content manually in the Content Creator tab.
-              </div>
-            )}
-            {error && <p className="text-red-500 text-xs mt-2 bg-red-50 p-2 rounded-md border border-red-100">{error}</p>}
+            <div>
+              <p className={`text-sm font-bold leading-none tracking-wide ${
+                theme === "dark" ? "text-white" : "text-neutral-900"
+              }`}>SwipePosts</p>
+              <p className={`text-[10px] mt-0.5 font-mono ${
+                theme === "dark" ? "text-neutral-500" : "text-neutral-400"
+              }`}>Social Post Maker</p>
+            </div>
           </div>
-        </div>
-
-        <div className="p-6 border-t border-neutral-100 bg-neutral-50/50">
+          
           <button
-            onClick={generatePost}
-            disabled={loading || (contentSource === 'ai' && !content.trim())}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg shadow-sm hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            onClick={toggleTheme}
+            className={`p-1.5 rounded-lg transition-colors border text-sm flex items-center justify-center ${
+              theme === "dark"
+                ? "border-neutral-800 text-yellow-400 bg-neutral-900 hover:bg-neutral-800"
+                : "border-neutral-200 text-purple-600 bg-neutral-100 hover:bg-neutral-200/50"
+            }`}
+            title={theme === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}
           >
-            {loading ? (
-              <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-                Generating...
-              </>
+            {theme === "dark" ? (
+              <svg className="w-4 h-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 2.293a1 1 0 011.414 0l.707.707a1 1 0 01-1.414 1.414l-.707-.707a1 1 0 010-1.414zm2.707 5.707a1 1 0 011-1h1a1 1 0 110 2h-1a1 1 0 01-1-1zM14 15.707a1 1 0 010-1.414l.707-.707a1 1 0 111.414 1.414l-.707.707a1 1 0 01-1.414 0zm-4 1.293a1 1 0 011-1v-1a1 1 0 11-2 0v1a1 1 0 011 1zm-4-2.293a1 1 0 00-1.414 0l-.707.707a1 1 0 001.414 1.414l.707-.707a1 1 0 000-1.414zm-2.707-5.707a1 1 0 00-1 1v1a1 1 0 102 0v-1a1 1 0 00-1-1zM6 4.293a1 1 0 000 1.414l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 0zM10 6a4 4 0 100 8 4 4 0 000-8z" clipRule="evenodd" />
+              </svg>
             ) : (
-              <>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-                Generate Content
-              </>
+              <svg className="w-4 h-4 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z" />
+              </svg>
             )}
+          </button>
+        </div>
+
+        <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
+          {TABS.filter(t => t.id !== "preview").map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-3 ${
+                  isActive
+                    ? theme === "dark"
+                      ? "bg-neutral-900 text-white font-bold border-l-4 border-pink-500 pl-2"
+                      : "bg-neutral-100 text-neutral-950 font-bold border-l-4 border-pink-500 pl-2"
+                    : theme === "dark"
+                    ? "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900/50"
+                    : "text-neutral-550 hover:text-neutral-800 hover:bg-neutral-100/50"
+                }`}
+              >
+                <span className="flex-shrink-0">
+                  {tab.id === "gallery" ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  ) : tab.id === "saved" ? (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  )}
+                </span>
+                {tab.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className={`px-3 py-4 border-t ${
+          theme === "dark" ? "border-neutral-800 bg-neutral-950" : "border-neutral-200 bg-white"
+        }`}>
+          <div className="px-3 mb-3">
+            <p className={`text-xs font-mono ${
+              theme === "dark" ? "text-neutral-500" : "text-neutral-400"
+            }`}>{username}</p>
+          </div>
+          <button
+            onClick={handleLogout}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+              theme === "dark"
+                ? "text-neutral-500 hover:text-red-400 hover:bg-red-950/20"
+                : "text-neutral-400 hover:text-red-600 hover:bg-red-50"
+            }`}
+          >
+            Log out
           </button>
         </div>
       </aside>
 
-      {/* MAIN CONTENT AREA */}
-      <main className="flex-1 flex flex-col h-full bg-[#fcfcfc]">
-        {/* Top Navigation */}
-        <header className="h-16 border-b border-neutral-200 bg-white flex items-center justify-between px-8 shrink-0">
-          <nav className="flex gap-8">
-            <button 
-              onClick={() => setActiveTab("creator")}
-              className={`text-sm font-medium h-16 border-b-2 transition-colors ${activeTab === 'creator' ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}
-            >
-              Content Creator
-            </button>
-            <button 
-              onClick={() => setActiveTab("gallery")}
-              className={`text-sm font-medium h-16 border-b-2 transition-colors ${activeTab === 'gallery' ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}
-            >
-              Template Gallery
-            </button>
-            <button 
-              onClick={() => setActiveTab("preview")}
-              className={`text-sm font-medium h-16 border-b-2 transition-colors ${activeTab === 'preview' ? 'border-blue-600 text-blue-600' : 'border-transparent text-neutral-500 hover:text-neutral-800'}`}
-            >
-              Post Preview
-            </button>
-          </nav>
-          
-          <div className="flex items-center gap-4">
-            <button className="text-neutral-400 hover:text-neutral-600">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-            </button>
-            <div className="flex items-center gap-3 pl-4 border-l border-neutral-200">
-              <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm border border-blue-200 uppercase">
-                {loggedInUsername.charAt(0)}
-              </div>
-              <button 
-                onClick={handleLogout}
-                className="text-xs font-semibold text-neutral-500 hover:text-red-500 transition-colors"
-              >
-                Logout
-              </button>
+      {/* Main Container */}
+      <main className={`flex-1 flex overflow-hidden flex-col md:flex-row ${
+        theme === "dark" ? "bg-black" : "bg-neutral-50"
+      }`}>
+
+        {/* Left panel — Gallery or Creator */}
+        <div className={`${
+          activeTab === "preview" ? "hidden md:flex" : "flex w-full md:w-96"
+        } flex-shrink-0 md:border-r flex flex-col overflow-hidden ${
+          theme === "dark" ? "bg-neutral-950 border-neutral-800" : "bg-white border-neutral-200"
+        }`}>
+          {/* Platform Selector (Top of everything in Left Panel) */}
+          <div className={`px-6 py-4 border-b flex flex-col gap-3.5 ${
+            theme === "dark" ? "border-neutral-800" : "border-neutral-200"
+          }`}>
+            <div className="flex items-center justify-between">
+              <h2 className={`text-xs font-mono uppercase tracking-widest ${
+                theme === "dark" ? "text-neutral-400" : "text-neutral-500"
+              }`}>
+                {activeTab === "gallery" ? "Template gallery" : activeTab === "saved" ? "Saved drafts" : "Post builder"}
+              </h2>
             </div>
-          </div>
-        </header>
-
-        {/* Tab Content */}
-        <div className="flex-1 overflow-hidden relative">
-          
-          {/* CONTENT CREATOR TAB */}
-          {activeTab === 'creator' && (
-            <div className="absolute inset-0 flex h-full">
-              <div className="flex-1 p-8 overflow-y-auto">
-                <div className="max-w-3xl mx-auto space-y-8">
-                  {/* Creative Direction - Hidden in Custom Mode */}
-                  {contentSource === "ai" && (
-                    <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm">
-                      <div className="flex items-center justify-between mb-6">
-                        <h3 className="text-lg font-semibold text-neutral-800">Creative Direction</h3>
-                        <button onClick={handleAutofill} className="text-blue-600 text-sm font-medium hover:underline">Autofill</button>
-                      </div>
-                      
-                      <div className="grid grid-cols-2 gap-6">
-                        <div>
-                          <label className="block text-xs font-medium text-neutral-500 mb-2">Primary Goal</label>
-                          <select 
-                            value={goal}
-                            onChange={(e) => setGoal(e.target.value)}
-                            className="w-full text-sm border border-neutral-200 rounded-md px-3 py-2.5 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none"
-                          >
-                            <option>Educational</option>
-                            <option>Inspirational</option>
-                            <option>Promotional</option>
-                            <option>Engagement</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-neutral-500 mb-2">Tone</label>
-                          <select 
-                            value={tone}
-                            onChange={(e) => setTone(e.target.value)}
-                            className="w-full text-sm border border-neutral-200 rounded-md px-3 py-2.5 bg-neutral-50 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none"
-                          >
-                            <option>Professional</option>
-                            <option>Casual</option>
-                            <option>Empathetic</option>
-                            <option>Provocative</option>
-                          </select>
-                        </div>
-                      </div>
-                    </section>
-                  )}
-
-                  {/* Content Block / Slide Builder */}
-                  <section className="bg-white rounded-xl border border-neutral-200 p-6 shadow-sm flex flex-col min-h-[400px]">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-lg font-semibold text-neutral-800">{contentSource === 'ai' ? 'Content Block' : 'Slide Builder'}</h3>
-                      {contentSource === 'custom' && (
-                        <button onClick={handleAutofill} className="text-blue-600 text-sm font-medium hover:underline">Demo Fill</button>
-                      )}
-                    </div>
-                    
-                    {contentSource === "ai" ? (
-                      <div className="flex-1 bg-neutral-50 rounded-lg border border-neutral-100 p-4 relative">
-                        {post ? (
-                          <div className="prose prose-sm text-neutral-700">
-                            <p className="font-semibold mb-2">Caption:</p>
-                            <p className="whitespace-pre-wrap">{post.caption}</p>
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {post.hashtags?.map((tag: string, i: number) => (
-                                <span key={i} className="text-blue-600 bg-blue-50 px-2 py-1 rounded text-xs font-medium">{tag}</span>
-                              ))}
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-neutral-400 text-sm italic absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center px-4">
-                            Your AI-generated content will appear here after clicking "Generate Content".
-                          </p>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="space-y-6">
-                        {/* Custom Slide Builder Mode */}
-                        <div className="space-y-4">
-                          {customSlides.map((slide, index) => (
-                            <div key={index} className="p-4 bg-neutral-50 border border-neutral-100 rounded-lg shadow-sm relative">
-                              <div className="flex justify-between items-center mb-3">
-                                <h4 className="text-sm font-bold text-neutral-700">
-                                  Slide {index + 1} {index === 0 ? '(Cover)' : index === customSlides.length - 1 ? '(Closing)' : ''}
-                                </h4>
-                                {customSlides.length > 2 && (
-                                  <button onClick={() => removeSlide(index)} className="text-red-500 hover:text-red-700 p-1 bg-white rounded shadow-sm border border-red-100" title="Remove Slide">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                  </button>
-                                )}
-                              </div>
-                              <div className="grid grid-cols-2 gap-4 mb-3">
-                                <div>
-                                  <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">Eyebrow</label>
-                                  <input type="text" value={slide.eyebrow} onChange={(e) => handleSlideChange(index, 'eyebrow', e.target.value)} className="w-full text-xs border border-neutral-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none" placeholder="e.g. Daily Note" />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">Headline</label>
-                                  <input type="text" value={slide.headline} onChange={(e) => handleSlideChange(index, 'headline', e.target.value)} className="w-full text-xs border border-neutral-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none" placeholder="e.g. Why we wait" />
-                                </div>
-                              </div>
-                              <div>
-                                <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">Subtext</label>
-                                <textarea value={slide.subtext} onChange={(e) => handleSlideChange(index, 'subtext', e.target.value)} className="w-full text-xs border border-neutral-200 rounded px-2 py-1.5 h-16 resize-none focus:border-blue-500 outline-none" placeholder="Write your paragraph..." />
-                              </div>
-                              {index === customSlides.length - 1 && (
-                                <div className="grid grid-cols-2 gap-4 mt-3 pt-3 border-t border-neutral-200">
-                                  <div>
-                                    <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">CTA Label</label>
-                                    <input type="text" value={slide.ctaLabel} onChange={(e) => handleSlideChange(index, 'ctaLabel', e.target.value)} className="w-full text-xs border border-neutral-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none" placeholder="e.g. Next Step" />
-                                  </div>
-                                  <div>
-                                    <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">CTA Action</label>
-                                    <input type="text" value={slide.ctaAction} onChange={(e) => handleSlideChange(index, 'ctaAction', e.target.value)} className="w-full text-xs border border-neutral-200 rounded px-2 py-1.5 focus:border-blue-500 outline-none" placeholder="e.g. Save this post." />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-
-                        {customSlides.length < 10 && (
-                          <button 
-                            onClick={addSlide}
-                            className="w-full py-2 border-2 border-dashed border-blue-200 text-blue-600 rounded-lg text-sm font-semibold hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                          >
-                            + Add Another Slide (Max 10)
-                          </button>
-                        )}
-
-                        <div className="p-4 bg-white border border-neutral-200 rounded-lg shadow-sm">
-                          <h4 className="text-sm font-bold text-neutral-700 mb-3">Post Caption Details</h4>
-                          <div className="space-y-3">
-                            <div>
-                              <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">Caption</label>
-                              <textarea value={customCaption} onChange={(e) => setCustomCaption(e.target.value)} placeholder="Write your post caption..." className="w-full text-sm border border-neutral-200 rounded px-3 py-2 h-20 resize-none focus:border-blue-500 outline-none" />
-                            </div>
-                            <div>
-                              <label className="block text-[10px] uppercase font-bold text-neutral-500 mb-1">Hashtags (space separated)</label>
-                              <input type="text" value={customHashtags} onChange={(e) => setCustomHashtags(e.target.value)} placeholder="#psychology #wellness" className="w-full text-sm border border-neutral-200 rounded px-3 py-2 focus:border-blue-500 outline-none" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </section>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TEMPLATE GALLERY TAB */}
-          {activeTab === 'gallery' && (
-            <div className="absolute inset-0 p-8 overflow-y-auto">
-              <div className="max-w-5xl mx-auto">
-                <div className="flex items-center justify-between mb-8">
-                  <h2 className="text-2xl font-bold text-neutral-800">Template Gallery</h2>
-                  
-                  <div className="relative flex items-center gap-4">
-                    <input 
-                      type="file" 
-                      accept=".html" 
-                      onChange={handleFileUpload}
-                      ref={fileInputRef}
-                      className="hidden"
-                    />
-                    <button 
-                      onClick={() => fileInputRef.current?.click()}
-                      className="text-sm border border-neutral-200 bg-white px-4 py-2 rounded-lg font-medium text-neutral-700 shadow-sm hover:bg-neutral-50 flex items-center gap-2 cursor-pointer"
+            {activeTab === "creator" && (
+              <div className="flex gap-1.5 mt-2 flex-wrap">
+                {(["instagram", "linkedin", "facebook", "whatsapp"] as const).map((plat) => {
+                  const isActive = config.platform === plat;
+                  const platBranding = getPlatformBranding(plat);
+                  return (
+                    <button
+                      key={plat}
+                      onClick={() => updateConfig("platform", plat)}
+                      className={`flex-1 min-w-[70px] py-1 px-1.5 rounded-lg text-[10px] font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                        isActive
+                          ? theme === "dark"
+                            ? "bg-neutral-900 text-white border-neutral-800 shadow-sm"
+                            : "bg-neutral-100 text-neutral-900 border-neutral-200 shadow-sm"
+                          : theme === "dark"
+                          ? "bg-transparent text-neutral-400 border-transparent hover:text-neutral-200 hover:bg-neutral-900/40"
+                          : "bg-transparent text-neutral-500 border-transparent hover:text-neutral-800 hover:bg-neutral-100/40"
+                      }`}
                     >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
-                      {customTemplateFile ? "Change Custom Template" : "Upload Custom Template"}
+                      <span className={`w-1.5 h-1.5 rounded-full bg-gradient-to-tr ${platBranding.gradient}`} />
+                      <span className="capitalize">{plat === "instagram" ? "Insta" : plat === "linkedin" ? "LinkedIn" : plat === "facebook" ? "FB" : "WA"}</span>
                     </button>
-                    {customTemplateFile && (
-                      <p className="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full border border-green-200 whitespace-nowrap font-medium">
-                        ✓ Uploaded: {customTemplateFile.name}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-8">
-                  {/* Gallery Sidebar */}
-                  <div className="w-48 shrink-0 space-y-6">
-                    <div>
-                      <h4 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Categories</h4>
-                      <ul className="space-y-1">
-                        <li><button className="w-full text-left text-sm font-medium text-blue-600 bg-blue-50 px-3 py-2 rounded-md">All Templates</button></li>
-                        <li><button className="w-full text-left text-sm font-medium text-neutral-600 hover:bg-neutral-100 px-3 py-2 rounded-md">Educational</button></li>
-                        <li><button className="w-full text-left text-sm font-medium text-neutral-600 hover:bg-neutral-100 px-3 py-2 rounded-md">Quotes</button></li>
-                        <li><button className="w-full text-left text-sm font-medium text-neutral-600 hover:bg-neutral-100 px-3 py-2 rounded-md">Product</button></li>
-                      </ul>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-semibold text-neutral-500 uppercase tracking-wider mb-3">Style</h4>
-                      <div className="flex flex-wrap gap-2">
-                        <span className="px-3 py-1 text-xs border border-neutral-200 rounded-full bg-white shadow-sm font-medium cursor-pointer hover:bg-neutral-50">Minimal</span>
-                        <span className="px-3 py-1 text-xs border border-neutral-200 rounded-full bg-white shadow-sm font-medium cursor-pointer hover:bg-neutral-50">Vibrant</span>
-                        <span className="px-3 py-1 text-xs border border-neutral-200 rounded-full bg-white shadow-sm font-medium cursor-pointer hover:bg-neutral-50">Dark</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Gallery Grid */}
-                  <div className="flex-1 grid grid-cols-3 gap-6">
-                    {[
-                      { name: "Minimal Psychology", type: "Carousel", bg: "bg-orange-50", file: "/post-template.html" },
-                      { name: "Therapy Quote", type: "Single Image", bg: "bg-blue-50", file: "/template-quote.html" },
-                      { name: "Data Visual", type: "Infographic", bg: "bg-green-50", file: "/template-data.html" },
-                      { name: "Modern Dark", type: "Carousel", bg: "bg-neutral-800 text-white", file: "/template-dark.html" }
-                    ].map((tpl, i) => {
-                      const isSelected = activeTemplatePath === tpl.file && !customTemplateFile;
-                      return (
-                        <div key={i} className="group cursor-pointer" onClick={() => {
-                          setActiveTemplatePath(tpl.file);
-                          setCustomTemplateFile(null);
-                          setCustomTemplateHtml(null);
-                          setActiveTab('creator');
-                        }}>
-                          <div className={`w-full aspect-[4/5] ${tpl.bg} rounded-xl border border-neutral-200 mb-3 relative overflow-hidden transition-all group-hover:shadow-md ${isSelected ? 'ring-2 ring-blue-500 shadow-md' : ''}`}>
-                            <div className={`absolute inset-0 opacity-0 group-hover:opacity-100 bg-black/5 flex items-center justify-center transition-opacity`}>
-                              <button className="bg-white text-neutral-900 text-xs font-semibold px-4 py-2 rounded-full shadow-sm">{isSelected ? 'Selected' : 'Select'}</button>
-                            </div>
-                            {isSelected && (
-                              <div className="absolute top-2 right-2 bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm">Active</div>
-                            )}
-                          </div>
-                          <h5 className={`font-semibold text-sm transition-colors ${isSelected ? 'text-blue-600' : 'text-neutral-800 group-hover:text-blue-600'}`}>{tpl.name}</h5>
-                          <p className="text-xs text-neutral-500">{tpl.type}</p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                  );
+                })}
               </div>
-            </div>
-          )}
-
-          {/* POST PREVIEW TAB */}
-          {activeTab === 'preview' && (
-            <div className="absolute inset-0 p-8 overflow-y-auto bg-neutral-100 flex flex-col items-center">
-              <div className="w-full max-w-4xl flex items-center justify-between mb-6">
-                 <h2 className="text-xl font-bold text-neutral-800">Preview & Publish</h2>
-                 <div className="flex gap-3">
-                   <button 
-                     onClick={downloadHtml}
-                     disabled={!templateHtml}
-                     className="px-4 py-2 text-sm font-medium text-neutral-700 bg-white border border-neutral-200 rounded-lg shadow-sm hover:bg-neutral-50 disabled:opacity-50 cursor-pointer"
-                   >
-                     Download HTML
-                   </button>
-                   <button 
-                     onClick={triggerPngDownload}
-                     disabled={!templateHtml || downloadingPng}
-                     className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg shadow-sm hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-                   >
-                     {downloadingPng ? 'Processing PNGs...' : 'Download as PNGs'}
-                   </button>
-                   <button 
-                     onClick={() => alert("This feature would connect to the Meta Graph API to share directly to your linked Instagram Business Account.")}
-                     disabled={!templateHtml}
-                     className="px-4 py-2 text-sm font-medium text-white bg-gradient-to-r from-pink-500 to-purple-600 rounded-lg shadow-sm hover:opacity-90 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
-                   >
-                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-                     Share to Instagram
-                   </button>
-                 </div>
-              </div>
-
-              {templateHtml ? (
-                <div className="w-full max-w-4xl bg-white rounded-2xl shadow-xl border border-neutral-200 p-8">
-                  <div className="w-full bg-[#111] rounded-xl overflow-hidden shadow-inner ring-1 ring-black/5 relative h-[600px]">
-                    <iframe
-                      ref={iframeRef}
-                      srcDoc={templateHtml}
-                      className="absolute top-0 left-0 border-none"
-                      style={{ width: '300%', height: '300%', transform: 'scale(0.3333)', transformOrigin: '0 0' }}
-                      title="Post Template Preview"
-                    />
-                  </div>
-                  
-                  <div className="mt-8 pt-6 border-t border-neutral-100">
-                    <h3 className="font-semibold text-neutral-800 mb-3">Generated Caption</h3>
-                    <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-4">
-                      <p className="text-sm text-neutral-600 whitespace-pre-wrap">{post?.caption}</p>
-                      <div className="mt-3 text-sm text-blue-600 font-medium">
-                        {post?.hashtags?.join(" ")}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full max-w-md text-center mt-20">
-                  <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-neutral-200 mb-4">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-neutral-400"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>
-                  </div>
-                  <h3 className="text-lg font-semibold text-neutral-800 mb-2">No Preview Available</h3>
-                  <p className="text-neutral-500 text-sm">Generate a post from the Content Creator tab to see the preview here.</p>
-                  <button 
-                    onClick={() => setActiveTab("creator")}
-                    className="mt-6 px-4 py-2 bg-white border border-neutral-200 rounded-lg shadow-sm text-sm font-medium hover:bg-neutral-50 cursor-pointer"
-                  >
-                    Go to Creator
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+            )}
+          </div>
+          <div className="flex-1 overflow-y-auto px-4 md:px-6 py-4 md:py-5">
+            {activeTab === "gallery" ? (
+              <TemplateGallery
+                theme={theme}
+                activeTemplate={activeTemplate}
+                onSelectTemplate={(id) => {
+                  setActiveTemplate(id);
+                  setCustomTemplateHtml(null);
+                  setActiveTab("creator");
+                }}
+                onCustomUpload={(html) => {
+                  setCustomTemplateHtml(html);
+                  setActiveTab("creator");
+                }}
+              />
+            ) : activeTab === "saved" ? (
+              <SavedPosts
+                theme={theme}
+                activePostId={currentPostId}
+                onLoadPost={handleLoadPost}
+                onNewPost={handleNewPost}
+              />
+            ) : (
+              <SlideBuilder
+                theme={theme}
+                slides={slides}
+                config={config}
+                onUpdateSlide={updateSlide}
+                onUpdateConfig={updateConfig}
+                onAddSlide={addSlide}
+                onRemoveSlide={removeSlide}
+                onMoveSlide={moveSlide}
+                isGenerating={isGenerating}
+                chatMessages={chatMessages}
+                onSendChatMessage={handleSendChatMessage}
+                onResetChat={resetChat}
+              />
+            )}
+          </div>
         </div>
+
+        {/* Right panel — always-visible live preview */}
+        <div className={`${
+          activeTab === "preview" ? "flex w-full md:flex-1" : "hidden md:flex md:flex-1"
+        } overflow-hidden px-4 md:px-6 py-4 md:py-5 flex flex-col ${
+          theme === "dark" ? "bg-black" : "bg-neutral-50"
+        }`}>
+          <LivePreview
+            theme={theme}
+            previewHtml={previewHtml}
+            onDownloadHtml={handleDownloadHtml}
+            onDownloadPng={handleDownloadPng}
+            onShare={handleShare}
+            onSaveDraft={handleSaveDraft}
+            isSaving={isSaving}
+          />
+        </div>
+
       </main>
+
+      {/* Bottom Mobile Navigation */}
+      <nav className={`md:hidden border-t flex justify-around items-center py-2.5 flex-shrink-0 ${
+        theme === "dark" ? "bg-neutral-950 border-neutral-800" : "bg-white border-neutral-200"
+      }`}>
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex flex-col items-center gap-1 text-[10px] font-semibold transition-colors ${
+                isActive
+                  ? "text-pink-500 font-bold"
+                  : theme === "dark"
+                  ? "text-neutral-500 hover:text-neutral-300"
+                  : "text-neutral-400 hover:text-neutral-700"
+              }`}
+            >
+              {tab.id === "gallery" ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              ) : tab.id === "creator" ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                </svg>
+              )}
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
+    </ErrorBoundary>
   );
 }
