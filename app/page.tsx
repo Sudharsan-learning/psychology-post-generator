@@ -274,6 +274,7 @@ export default function Home() {
           gradient: "from-blue-600 to-blue-800",
           shadow: "shadow-blue-500/25",
           text: "text-blue-500",
+          border: "border-blue-500",
           label: "Facebook",
           bg: isDark ? "bg-blue-950/40" : "bg-blue-50",
           iconColor: isDark ? "text-blue-400" : "text-blue-600",
@@ -288,6 +289,7 @@ export default function Home() {
           gradient: "from-sky-600 to-blue-800",
           shadow: "shadow-sky-500/25",
           text: "text-sky-600",
+          border: "border-sky-600",
           label: "LinkedIn",
           bg: isDark ? "bg-sky-950/40" : "bg-sky-50",
           iconColor: isDark ? "text-sky-400" : "text-sky-600",
@@ -302,13 +304,12 @@ export default function Home() {
           gradient: "from-green-500 to-emerald-600",
           shadow: "shadow-green-500/25",
           text: "text-green-500",
+          border: "border-green-500",
           label: "WhatsApp",
           bg: isDark ? "bg-emerald-950/40" : "bg-emerald-50",
           iconColor: isDark ? "text-emerald-400" : "text-emerald-600",
           icon: (
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M12.004 0C5.372 0 0 5.372 0 12.004c0 2.115.55 4.1 1.589 5.897L0 24l6.236-1.637a11.954 11.954 0 005.768 1.492h.005c6.627 0 12.003-5.378 12.003-12.005c0-3.21-1.25-6.23-3.518-8.498A11.916 11.916 0 0012.004 0zm0 1.95c2.68 0 5.2.1 7.29 2.19c2.09 2.09 2.19 4.61 2.19 7.29s-.1 5.2-2.19 7.29c-2.09 2.09-4.61 2.19-7.29 2.19c-1.69 0-3.35-.44-4.81-1.28l-.34-.2l-3.58.94.96-3.49-.22-.35A10.007 10.007 0 012.2 12.004c0-5.405 4.394-9.8 9.8-9.8c0-.2.004-.254.004-.254z" />
-            </svg>
+            <svg height="16px" width="16px" version="1.1" id="Layer_1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 12.544 12.544"><g><path style={{ fill: "#7AD06D" }} d="M5.968 0.007C2.655 0.165 0.041 2.924 0.051 6.241c0.003 1.01 0.247 1.964 0.677 2.806L0.067 12.253c-0.036 0.173 0.121 0.325 0.293 0.284l3.142 -0.744c0.807 0.402 1.714 0.634 2.673 0.649 3.386 0.052 6.209 -2.637 6.315 -6.022C12.603 2.792 9.609 -0.166 5.968 0.007m3.749 9.659c-0.92 0.92 -2.143 1.427 -3.445 1.427 -0.762 0 -1.491 -0.171 -2.168 -0.508l-0.438 -0.218 -1.926 0.456 0.405 -1.968 -0.216 -0.422c-0.351 -0.688 -0.529 -1.432 -0.529 -2.211 0 -1.301 0.507 -2.524 1.427 -3.445 0.912 -0.912 2.155 -1.427 3.445 -1.427 1.301 0 2.524 0.507 3.444 1.427 0.92 0.92 1.427 2.143 1.427 3.445 0 1.29 -0.515 2.533 -1.427 3.445" /><path style={{ fill:"#7AD06D" }} d="m9.291 7.571 -1.205 -0.346a0.449 0.449 0 0 0 -0.444 0.117l-0.295 0.3c-0.124 0.127 -0.313 0.167 -0.477 0.101 -0.57 -0.231 -1.769 -1.297 -2.075 -1.83 -0.088 -0.154 -0.074 -0.346 0.035 -0.487l0.257 -0.333a0.449 0.449 0 0 0 0.055 -0.456l-0.507 -1.147c-0.121 -0.275 -0.472 -0.355 -0.702 -0.161 -0.336 0.284 -0.735 0.717 -0.784 1.196 -0.086 0.844 0.277 1.909 1.646 3.187 1.582 1.476 2.849 1.672 3.673 1.472 0.468 -0.113 0.842 -0.568 1.078 -0.94 0.161 -0.254 0.034 -0.59 -0.255 -0.673"/></g></svg>
           ),
         };
       case "instagram":
@@ -317,6 +318,7 @@ export default function Home() {
           gradient: "from-yellow-500 via-red-500 via-pink-500 to-purple-600",
           shadow: "shadow-pink-500/25",
           text: "text-pink-500",
+          border: "border-pink-500",
           label: "Instagram",
           bg: "bg-black",
           iconColor: "text-white",
@@ -434,8 +436,8 @@ export default function Home() {
                 className={`w-full text-left px-3 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-3 ${
                   isActive
                     ? theme === "dark"
-                      ? "bg-neutral-900 text-white font-bold border-l-4 border-pink-500 pl-2"
-                      : "bg-neutral-100 text-neutral-950 font-bold border-l-4 border-pink-500 pl-2"
+                      ? `bg-neutral-900 text-white font-bold border-l-4 ${brand.border} pl-2`
+                      : `bg-neutral-100 text-neutral-950 font-bold border-l-4 ${brand.border} pl-2`
                     : theme === "dark"
                     ? "text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900/50"
                     : "text-neutral-550 hover:text-neutral-800 hover:bg-neutral-100/50"
@@ -490,7 +492,7 @@ export default function Home() {
 
         {/* Left panel — Gallery or Creator */}
         <div className={`${
-          activeTab === "preview" ? "hidden md:flex" : "flex w-full md:w-96"
+          activeTab === "preview" ? "hidden md:flex" : "flex flex-1 md:flex-none w-full md:w-96"
         } flex-shrink-0 md:border-r flex flex-col overflow-hidden ${
           theme === "dark" ? "bg-neutral-950 border-neutral-800" : "bg-white border-neutral-200"
         }`}>
@@ -514,7 +516,7 @@ export default function Home() {
                     <button
                       key={plat}
                       onClick={() => updateConfig("platform", plat)}
-                      className={`flex-1 min-w-[70px] py-1 px-1.5 rounded-lg text-[10px] font-semibold transition-all border flex items-center justify-center gap-1.5 ${
+                      className={`flex-1 min-w-[70px] py-1 px-1.5 rounded-lg text-[10px] font-semibold transition-all border flex items-center justify-center gap-1.5 whitespace-nowrap flex-shrink-0 ${
                         isActive
                           ? theme === "dark"
                             ? "bg-neutral-900 text-white border-neutral-800 shadow-sm"
@@ -546,6 +548,7 @@ export default function Home() {
                   setCustomTemplateHtml(html);
                   setActiveTab("creator");
                 }}
+                platform={config.platform}
               />
             ) : activeTab === "saved" ? (
               <SavedPosts
@@ -553,6 +556,7 @@ export default function Home() {
                 activePostId={currentPostId}
                 onLoadPost={handleLoadPost}
                 onNewPost={handleNewPost}
+                platform={config.platform}
               />
             ) : (
               <SlideBuilder
@@ -568,6 +572,7 @@ export default function Home() {
                 chatMessages={chatMessages}
                 onSendChatMessage={handleSendChatMessage}
                 onResetChat={resetChat}
+                platform={config.platform}
               />
             )}
           </div>
@@ -575,7 +580,7 @@ export default function Home() {
 
         {/* Right panel — always-visible live preview */}
         <div className={`${
-          activeTab === "preview" ? "flex w-full md:flex-1" : "hidden md:flex md:flex-1"
+          activeTab === "preview" ? "flex flex-1 w-full md:flex-1" : "hidden md:flex md:flex-1"
         } overflow-hidden px-4 md:px-6 py-4 md:py-5 flex flex-col ${
           theme === "dark" ? "bg-black" : "bg-neutral-50"
         }`}>
@@ -587,6 +592,7 @@ export default function Home() {
             onShare={handleShare}
             onSaveDraft={handleSaveDraft}
             isSaving={isSaving}
+            platform={config.platform}
           />
         </div>
 
@@ -604,7 +610,7 @@ export default function Home() {
               onClick={() => setActiveTab(tab.id)}
               className={`flex flex-col items-center gap-1 text-[10px] font-semibold transition-colors ${
                 isActive
-                  ? "text-pink-500 font-bold"
+                  ? `${brand.text} font-bold`
                   : theme === "dark"
                   ? "text-neutral-500 hover:text-neutral-300"
                   : "text-neutral-400 hover:text-neutral-700"
@@ -617,6 +623,10 @@ export default function Home() {
               ) : tab.id === "creator" ? (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+              ) : tab.id === "saved" ? (
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                 </svg>
               ) : (
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

@@ -52,9 +52,10 @@ interface Props {
   activeTemplate: string;
   onSelectTemplate: (id: string) => void;
   onCustomUpload: (html: string) => void;
+  platform: "instagram" | "facebook" | "linkedin" | "whatsapp";
 }
 
-export default function TemplateGallery({ theme, activeTemplate, onSelectTemplate, onCustomUpload }: Props) {
+export default function TemplateGallery({ theme, activeTemplate, onSelectTemplate, onCustomUpload, platform }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,6 +70,8 @@ export default function TemplateGallery({ theme, activeTemplate, onSelectTemplat
     // Reset so same file can be re-uploaded
     e.target.value = "";
   };
+
+  const colors = getPlatformColors(platform);
 
   return (
     <div className="flex flex-col gap-6">
@@ -86,8 +89,8 @@ export default function TemplateGallery({ theme, activeTemplate, onSelectTemplat
               className={`group text-left rounded-xl border p-4 transition-all ${
                 activeTemplate === tpl.id
                   ? theme === "dark"
-                    ? "border-pink-500 bg-pink-950/15 shadow-md shadow-pink-900/10"
-                    : "border-pink-500 bg-pink-50/50 shadow-md shadow-pink-200/20"
+                    ? colors.activeCardDark
+                    : colors.activeCardLight
                   : theme === "dark"
                   ? "border-neutral-800 bg-neutral-900/50 hover:border-neutral-700"
                   : "border-neutral-200 bg-white hover:border-neutral-300"
@@ -206,3 +209,25 @@ export default function TemplateGallery({ theme, activeTemplate, onSelectTemplat
     </div>
   );
 }
+
+const getPlatformColors = (platform: string) => {
+  switch (platform) {
+    case "facebook":
+    case "linkedin":
+      return {
+        activeCardDark: "border-blue-500 bg-blue-950/15 shadow-md shadow-blue-900/10",
+        activeCardLight: "border-blue-500 bg-blue-50/50 shadow-md shadow-blue-200/20",
+      };
+    case "whatsapp":
+      return {
+        activeCardDark: "border-green-500 bg-green-950/15 shadow-md shadow-green-900/10",
+        activeCardLight: "border-green-50 bg-green-50/50 shadow-md shadow-green-200/20",
+      };
+    case "instagram":
+    default:
+      return {
+        activeCardDark: "border-pink-500 bg-pink-950/15 shadow-md shadow-pink-900/10",
+        activeCardLight: "border-pink-500 bg-pink-50/50 shadow-md shadow-pink-200/20",
+      };
+  }
+};
