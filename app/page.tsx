@@ -345,6 +345,7 @@ export default function Home() {
     <div className={`flex h-screen overflow-hidden font-sans flex-col md:flex-row ${theme} ${
       theme === "dark" ? "bg-black text-neutral-100" : "bg-neutral-50 text-neutral-800"
     }`}>
+      <h1 className="sr-only">SwipePosts Workspace — AI-Powered Social Media Carousel Generator</h1>
       <OnboardingModal theme={theme} />
 
       {/* Top Mobile Header */}
