@@ -1,6 +1,8 @@
 "use client";
 
-import { useRef, useCallback } from "react";
+import { useRef, useEffect, useState } from "react";
+import { getPlatformColors } from "@/lib/platformColors";
+import { SaveIcon, UploadIcon, DownloadIcon } from "@/components/icons";
 
 interface Props {
   theme: "dark" | "light";
@@ -25,6 +27,41 @@ export default function LivePreview({
 }: Props) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const colors = getPlatformColors(platform);
+  const exportTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+
+  // Listen for PNG data posted back from the sandboxed iframe
+  useEffect(() => {
+    function handleMessage(e: MessageEvent) {
+      if (e.data?.type === 'PNG_SLIDE_READY') {
+        const { dataUrl, filename, index, total } = e.data;
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        // Stop spinner after last slide
+        if (index >= total) {
+          setIsExporting(false);
+          if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+        }
+      } else if (e.data?.type === 'PNG_SLIDE_ERROR' || e.data?.type === 'PNG_DONE') {
+        setIsExporting(false);
+        if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, []);
+
+  const handlePngClick = () => {
+    setIsExporting(true);
+    // Safety: always stop spinner after 45s in case iframe fails silently
+    if (exportTimerRef.current) clearTimeout(exportTimerRef.current);
+    exportTimerRef.current = setTimeout(() => setIsExporting(false), 45000);
+    onDownloadPng();
+  };
 
   const isEmpty = !previewHtml;
 
@@ -50,11 +87,9 @@ export default function LivePreview({
             }`}
           >
             {isSaving ? (
-              <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" aria-label="Saving" />
             ) : (
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5h10.5a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0017.25 4.5H6.75A2.25 2.25 0 004.5 6.75v10.5a2.25 2.25 0 002.25 2.25z" />
-              </svg>
+              <SaveIcon />
             )}
             {isSaving ? "Saving..." : "Save Draft"}
           </button>
@@ -67,9 +102,7 @@ export default function LivePreview({
                 : "bg-white hover:bg-neutral-100 text-neutral-700 border-neutral-200"
             }`}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15M9 12l3-3m0 0l3 3m-3-3v11.25" />
-            </svg>
+            <UploadIcon />
             Share
           </button>
           <button
@@ -81,19 +114,19 @@ export default function LivePreview({
                 : "bg-white hover:bg-neutral-100 text-neutral-700 border-neutral-200"
             }`}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
+            <DownloadIcon />
             HTML
           </button>
           <button
-            onClick={onDownloadPng}
-            disabled={isEmpty}
+            onClick={handlePngClick}
+            disabled={isEmpty || isExporting}
             className={`text-xs px-3 py-1.5 rounded-lg whitespace-nowrap flex-shrink-0 flex items-center gap-1.5 ${colors.pngBtn}`}
           >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-            </svg>
+            {isExporting ? (
+              <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" aria-label="Exporting" />
+            ) : (
+              <DownloadIcon />
+            )}
             PNG slides
           </button>
         </div>
@@ -111,7 +144,7 @@ export default function LivePreview({
             srcDoc={previewHtml}
             className="w-full h-full border-none"
             title="Carousel preview"
-            sandbox="allow-scripts"
+            sandbox="allow-scripts allow-same-origin"
           />
         )}
 
@@ -149,36 +182,3 @@ function EmptyState({ theme }: { theme: "dark" | "light" }) {
   );
 }
 
-const getPlatformColors = (platform: string) => {
-  switch (platform) {
-    case "facebook":
-    case "linkedin":
-      return {
-        dotBg: "bg-blue-500",
-        saveDraftDark: "bg-blue-600/10 text-blue-400 border-blue-500/20 hover:bg-blue-600/20 disabled:opacity-50",
-        saveDraftLight: "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100 disabled:opacity-50",
-        pngBtn: "bg-gradient-to-r from-blue-600 to-indigo-600 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-md shadow-blue-900/10 transition-all",
-        badgeDot: "bg-blue-400",
-        badgeText: "text-blue-400",
-      };
-    case "whatsapp":
-      return {
-        dotBg: "bg-green-500",
-        saveDraftDark: "bg-green-600/10 text-green-400 border-green-500/20 hover:bg-green-600/20 disabled:opacity-50",
-        saveDraftLight: "bg-green-50 text-green-600 border-green-100 hover:bg-green-100 disabled:opacity-50",
-        pngBtn: "bg-gradient-to-r from-green-500 to-emerald-600 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-md shadow-green-900/10 transition-all",
-        badgeDot: "bg-green-400",
-        badgeText: "text-green-400",
-      };
-    case "instagram":
-    default:
-      return {
-        dotBg: "bg-pink-500",
-        saveDraftDark: "bg-pink-600/10 text-pink-400 border-pink-500/20 hover:bg-pink-600/20 disabled:opacity-50",
-        saveDraftLight: "bg-pink-50 text-pink-600 border-pink-100 hover:bg-pink-100 disabled:opacity-50",
-        pngBtn: "bg-gradient-to-r from-purple-600 via-pink-600 to-orange-500 hover:opacity-90 disabled:opacity-40 text-white font-semibold shadow-md shadow-pink-900/10 transition-all",
-        badgeDot: "bg-pink-400",
-        badgeText: "text-pink-400",
-      };
-  }
-};

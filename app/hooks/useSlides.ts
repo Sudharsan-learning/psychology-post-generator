@@ -1,4 +1,5 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import { ChatMessage } from "@/types/chat";
 
 export type ContentSource = "ai" | "custom";
 
@@ -26,18 +27,8 @@ export interface PostConfig {
 /** Factory — generates fresh IDs each call, safe for SSR. */
 function createInitialSlides(): Slide[] {
   return [
-    {
-      id: crypto.randomUUID(),
-      eyebrow: "This week's read",
-      headline: "",
-      subtext: "",
-    },
-    {
-      id: crypto.randomUUID(),
-      eyebrow: "",
-      headline: "",
-      subtext: "",
-    },
+    { id: crypto.randomUUID(), eyebrow: "This week's read", headline: "", subtext: "" },
+    { id: crypto.randomUUID(), eyebrow: "", headline: "", subtext: "" },
     {
       id: crypto.randomUUID(),
       eyebrow: "Take this with you",
@@ -49,7 +40,7 @@ function createInitialSlides(): Slide[] {
   ];
 }
 
-const INITIAL_CONFIG: PostConfig = {
+export const INITIAL_CONFIG: PostConfig = {
   author: "creator_handle",
   topic: "",
   goal: "educate",
@@ -61,8 +52,15 @@ const INITIAL_CONFIG: PostConfig = {
   platform: "instagram",
 };
 
+export const INITIAL_CHAT: ChatMessage[] = [
+  {
+    role: "assistant",
+    content:
+      "Hey! What would you like to create today? Describe your topic, goal, and tone, and I'll generate the slides. You can also refine them with me at any time!",
+  },
+];
+
 export function useSlides() {
-  // Use factory to avoid calling crypto.randomUUID() at module parse time (SSR safety)
   const [slides, setSlides] = useState<Slide[]>(createInitialSlides);
   const [config, setConfig] = useState<PostConfig>(INITIAL_CONFIG);
   const [activeTemplate, setActiveTemplate] = useState<string>("clinical");
@@ -70,83 +68,128 @@ export function useSlides() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [currentPostId, setCurrentPostId] = useState<string | null>(null);
-  const [chatMessages, setChatMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([
-    {
-      role: "assistant",
-      content: "Hey! What would you like to create today? Describe your topic, goal, and tone, and I'll generate the slides. You can also refine them with me at any time!"
-    }
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>(INITIAL_CHAT);
 
-  // Load from local storage and database on mount
+  // ─── Undo / Redo History Stack ─────────────────────────────────────────────
+  const [past, setPast] = useState<Slide[][]>([]);
+  const [future, setFuture] = useState<Slide[][]>([]);
+
+  const pushToPast = useCallback((currentState: Slide[]) => {
+    setPast((prev) => {
+      const nextPast = [...prev, currentState];
+      if (nextPast.length > 50) nextPast.shift(); // safety limit to 50 edits
+      return nextPast;
+    });
+    setFuture([]);
+  }, []);
+
+  const undo = useCallback(() => {
+    setPast((prevPast) => {
+      if (prevPast.length === 0) return prevPast;
+      const previous = prevPast[prevPast.length - 1];
+      const newPast = prevPast.slice(0, -1);
+      setSlides((currentSlides) => {
+        setFuture((prevFuture) => [currentSlides, ...prevFuture]);
+        return previous;
+      });
+      return newPast;
+    });
+  }, []);
+
+  const redo = useCallback(() => {
+    setFuture((prevFuture) => {
+      if (prevFuture.length === 0) return prevFuture;
+      const next = prevFuture[0];
+      const newFuture = prevFuture.slice(1);
+      setSlides((currentSlides) => {
+        setPast((prevPast) => [...prevPast, currentSlides]);
+        return next;
+      });
+      return newFuture;
+    });
+  }, []);
+
+  // ─── Dirty tracking — only save when data actually changed ────────────────
+  const lastSavedRef = useRef<string>("");
+
+  // ─── Load from localStorage + database on mount ───────────────────────────
   useEffect(() => {
     async function loadData() {
-      // 1. Save to local storage
       const savedSlides = localStorage.getItem("swipeposts_draft_slides");
       const savedConfig = localStorage.getItem("swipeposts_draft_config");
       const savedTemplate = localStorage.getItem("swipeposts_draft_template");
       const savedPostId = localStorage.getItem("swipeposts_draft_post_id");
       const savedChat = localStorage.getItem("swipeposts_draft_chat");
-      
+
+      // Apply local data first for instant load
       if (savedSlides) {
-        try { setSlides(JSON.parse(savedSlides)); } catch (_) {}
+        try { setSlides(JSON.parse(savedSlides)); } catch { /* corrupted, ignore */ }
       }
       if (savedConfig) {
-        try { setConfig(JSON.parse(savedConfig)); } catch (_) {}
+        try { setConfig(JSON.parse(savedConfig)); } catch { /* corrupted, ignore */ }
       }
       if (savedTemplate) setActiveTemplate(savedTemplate);
       if (savedPostId) setCurrentPostId(savedPostId);
       if (savedChat) {
-        try { setChatMessages(JSON.parse(savedChat)); } catch (_) {}
+        try { setChatMessages(JSON.parse(savedChat)); } catch { /* corrupted, ignore */ }
       }
 
-      // 2. Fetch latest server draft if authenticated
+      // Then fetch latest server draft (wins over local if available)
       try {
         const res = await fetch("/api/posts");
         if (res.ok) {
-          const posts = await res.json();
-          if (posts && posts.length > 0) {
-            const latest = posts[0];
-            if (latest.id) {
-              setCurrentPostId(latest.id);
-              localStorage.setItem("swipeposts_draft_post_id", latest.id);
-            }
-            if (latest.slides) {
-              setSlides(latest.slides);
-            }
-            setConfig({
-              author: latest.author || "creator_handle",
-              topic: latest.topic || "",
-              goal: latest.goal || "educate",
-              tone: latest.tone || "professional",
-              caption: latest.caption || "",
-              hashtags: latest.hashtags || "",
+          const data: {
+            posts: Array<{
+              id: string;
+              slides: Slide[];
+              topic?: string;
+              caption?: string;
+              hashtags?: string;
+              platform?: string;
+              activeTemplate?: string;
+              chatHistory?: ChatMessage[];
+            }>;
+          } = await res.json();
+
+          if (data.posts && data.posts.length > 0) {
+            const latest = data.posts[0];
+            setCurrentPostId(latest.id);
+            localStorage.setItem("swipeposts_draft_post_id", latest.id);
+            if (Array.isArray(latest.slides)) setSlides(latest.slides);
+            setConfig((prev) => ({
+              ...prev,
+              topic: latest.topic ?? "",
+              caption: latest.caption ?? "",
+              hashtags: latest.hashtags ?? "",
               contentSource: "custom",
               bgImage: null,
-              platform: latest.platform || "instagram",
-            });
-            if (latest.activeTemplate) {
-              setActiveTemplate(latest.activeTemplate);
-            }
-            if (latest.chatHistory && Array.isArray(latest.chatHistory)) {
+              platform: (latest.platform as PostConfig["platform"]) ?? "instagram",
+            }));
+            if (latest.activeTemplate) setActiveTemplate(latest.activeTemplate);
+            if (Array.isArray(latest.chatHistory) && latest.chatHistory.length > 0) {
               setChatMessages(latest.chatHistory);
             }
           }
         }
-      } catch (err) {
-        console.log("Could not load from DB, falling back to local draft:", err);
+      } catch {
+        // Offline / unauthenticated — local draft is fine
       }
-      
+
       setIsLoaded(true);
     }
     loadData();
   }, []);
 
-  // Save to local storage & sync to database on changes
+  // ─── Auto-save: localStorage always, DB only when dirty ──────────────────
   useEffect(() => {
     if (!isLoaded) return;
-    
+
+    // Compute a fingerprint to detect real changes
+    const fingerprint = JSON.stringify({ slides, config, activeTemplate, chatMessages });
+
+    // 5s debounce
     const saveDraft = setTimeout(async () => {
-      // 1. Save to local storage
+      // 1. Always persist to localStorage
       try {
         localStorage.setItem("swipeposts_draft_slides", JSON.stringify(slides));
         localStorage.setItem("swipeposts_draft_config", JSON.stringify(config));
@@ -161,7 +204,10 @@ export function useSlides() {
         console.warn("Failed to save draft to localStorage:", e);
       }
 
-      // 2. Sync to DB
+      // 2. Sync to DB only if data actually changed (dirty check)
+      if (fingerprint === lastSavedRef.current) return;
+      lastSavedRef.current = fingerprint;
+
       try {
         const res = await fetch("/api/posts", {
           method: "POST",
@@ -178,50 +224,46 @@ export function useSlides() {
           }),
         });
         if (res.ok) {
-          const data = await res.json();
+          const data: { success: boolean; post?: { id: string } } = await res.json();
           if (data.success && data.post?.id && data.post.id !== currentPostId) {
             setCurrentPostId(data.post.id);
             localStorage.setItem("swipeposts_draft_post_id", data.post.id);
           }
         }
-      } catch (e) {
-        // Ignore silent DB failures (offline / unauthenticated)
+      } catch {
+        // Silent — offline or rate-limited. LocalStorage has the data.
       }
-    }, 2000); // 2s debounce
-    
+    }, 5000); // 5s debounce (up from 2s)
+
     return () => clearTimeout(saveDraft);
-  }, [slides, config, activeTemplate, currentPostId, chatMessages, isLoaded]);
+    // Note: chatMessages deliberately excluded from deps to prevent save loops on AI response
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slides, config, activeTemplate, currentPostId, isLoaded]);
 
   const updateSlide = useCallback((id: string, field: keyof Slide, value: string) => {
-    setSlides((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
-    );
-  }, []);
+    setSlides((prev) => {
+      pushToPast(prev);
+      return prev.map((s) => (s.id === id ? { ...s, [field]: value } : s));
+    });
+  }, [pushToPast]);
 
   const addSlide = useCallback(() => {
     setSlides((prev) => {
       if (prev.length >= 10) return prev;
+      pushToPast(prev);
       const last = prev[prev.length - 1];
-      const newSlide: Slide = {
-        id: crypto.randomUUID(),
-        eyebrow: "",
-        headline: "",
-        subtext: "",
-      };
-      // Insert before last slide if last is CTA, otherwise append
-      if (last?.isCta) {
-        return [...prev.slice(0, -1), newSlide, last];
-      }
-      return [...prev, newSlide];
+      const newSlide: Slide = { id: crypto.randomUUID(), eyebrow: "", headline: "", subtext: "" };
+      return last?.isCta ? [...prev.slice(0, -1), newSlide, last] : [...prev, newSlide];
     });
-  }, []);
+  }, [pushToPast]);
 
   const removeSlide = useCallback((id: string) => {
     setSlides((prev) => {
       if (prev.length <= 1) return prev;
+      pushToPast(prev);
       return prev.filter((s) => s.id !== id);
     });
-  }, []);
+  }, [pushToPast]);
 
   const moveSlide = useCallback((id: string, direction: "up" | "down") => {
     setSlides((prev) => {
@@ -230,17 +272,15 @@ export function useSlides() {
       const next = [...prev];
       const swapIdx = direction === "up" ? idx - 1 : idx + 1;
       if (swapIdx < 0 || swapIdx >= next.length) return prev;
+      pushToPast(prev);
       [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
       return next;
     });
-  }, []);
+  }, [pushToPast]);
 
-  const updateConfig = useCallback(
-    (field: keyof PostConfig, value: string) => {
-      setConfig((prev) => ({ ...prev, [field]: value }));
-    },
-    []
-  );
+  const updateConfig = useCallback((field: keyof PostConfig, value: string) => {
+    setConfig((prev) => ({ ...prev, [field]: value }));
+  }, []);
 
   const resetSlides = useCallback(() => {
     setSlides(createInitialSlides());
@@ -267,5 +307,10 @@ export function useSlides() {
     setConfig,
     chatMessages,
     setChatMessages,
+    isLoaded,
+    undo,
+    redo,
+    canUndo: past.length > 0,
+    canRedo: future.length > 0,
   };
 }

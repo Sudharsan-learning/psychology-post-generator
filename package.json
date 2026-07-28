@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && node -e \"const fs=require('fs');fs.copyFileSync('node_modules/dom-to-image-more/dist/dom-to-image-more.min.js','public/dom-to-image-more.min.js');try{fs.copyFileSync('node_modules/dom-to-image-more/dist/dom-to-image-more.min.js.map','public/dom-to-image-more.min.js.map')}catch(e){}\""
   },
   "dependencies": {
     "@clerk/nextjs": "^7.5.13",
@@ -17,7 +17,8 @@
     "dom-to-image-more": "^3.10.0",
     "next": "16.2.9",
     "react": "19.2.7",
-    "react-dom": "19.2.7"
+    "react-dom": "19.2.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
