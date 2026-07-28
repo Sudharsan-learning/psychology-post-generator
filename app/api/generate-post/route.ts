@@ -1,32 +1,59 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { OpenRouter } from "@openrouter/sdk";
+import { isRateLimited } from "@/lib/rateLimiter";
+import { GeneratePostSchema } from "@/lib/schemas";
 
-// ─── OpenRouter Client ───────────────────────────────────
+// ─── OpenRouter Client ───────────────────────────────────────────────────────
 function getClient() {
   return new OpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
   });
 }
 
-// ─── Simple rate limiting (in-memory, per-deployment) ────
-const requestLog = new Map<string, number[]>();
-const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
-const RATE_LIMIT_MAX = 10; // max 10 requests per minute
+// ─── Body size guard (1 MB) ───────────────────────────────────────────────────
+const MAX_BODY_BYTES = 1 * 1024 * 1024;
 
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = requestLog.get(ip) ?? [];
-  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
-  recent.push(now);
-  requestLog.set(ip, recent);
-  return recent.length > RATE_LIMIT_MAX;
+async function readBody(req: Request): Promise<string | null> {
+  const contentLength = req.headers.get("content-length");
+  if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) return null;
+  const reader = req.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (value) {
+      total += value.byteLength;
+      if (total > MAX_BODY_BYTES) return null;
+      chunks.push(value);
+    }
+  }
+  return new TextDecoder().decode(
+    chunks.reduce((a, b) => {
+      const merged = new Uint8Array(a.length + b.length);
+      merged.set(a);
+      merged.set(b, a.length);
+      return merged;
+    }, new Uint8Array())
+  );
 }
 
-// ─── API HANDLER ─────────────────────────────────────────
+// ─── Request timeout wrapper ─────────────────────────────────────────────────
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Request timed out after ${ms / 1000}s`)), ms)
+    ),
+  ]);
+}
+
+// ─── API HANDLER ─────────────────────────────────────────────────────────────
 export async function POST(req: Request) {
   try {
-    // Auth check — verify Clerk user is signed in
+    // Auth check
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json(
@@ -35,40 +62,41 @@ export async function POST(req: Request) {
       );
     }
 
-    // Rate limiting
-    const ip = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "unknown";
-    if (isRateLimited(ip)) {
+    // Rate limit: 10 AI generations per minute per user (keyed by userId, not IP)
+    if (isRateLimited(userId, 10, 60_000)) {
       return NextResponse.json(
         { error: "Too many requests. Please wait a moment and try again." },
         { status: 429 }
       );
     }
 
-    const body = await req.json();
-    const { messages, currentSlides, caption, hashtags, activeTemplate, platform } = body;
-
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+    // Body size limit
+    const rawBody = await readBody(req);
+    if (rawBody === null) {
       return NextResponse.json(
-        { error: "messages array is required" },
-        { status: 400 }
+        { error: "Request body too large (max 1 MB)." },
+        { status: 413 }
       );
     }
 
-    // Validate messages structure
-    for (const msg of messages) {
-      if (!msg.role || !msg.content || typeof msg.content !== "string") {
-        return NextResponse.json(
-          { error: "Each message must have a 'role' and 'content' string." },
-          { status: 400 }
-        );
-      }
-      if (msg.role !== "user" && msg.role !== "assistant") {
-        return NextResponse.json(
-          { error: "Message role must be 'user' or 'assistant'." },
-          { status: 400 }
-        );
-      }
+    let rawJson: unknown;
+    try {
+      rawJson = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
+
+    // Zod validation
+    const parsed = GeneratePostSchema.safeParse(rawJson);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: "Validation error.", details: parsed.error.flatten().fieldErrors },
+        { status: 422 }
+      );
+    }
+
+    const { messages, currentSlides, caption, hashtags, activeTemplate, platform } =
+      parsed.data;
 
     const openrouter = getClient();
     const templateConstraints = getTemplateConstraints(activeTemplate, platform);
@@ -114,38 +142,48 @@ Rules for Content Correctness & Conversational Tone:
 - If the user asks to edit slides, return the updated slides list reflecting their edits, along with your response.
 `;
 
-    const openRouterMessages = messages.map((msg: { role: string; content: string }, index: number) => {
-      if (index === 0) {
+    const openRouterMessages = messages.map(
+      (msg: { role: string; content: string }, index: number) => {
+        if (index === 0) {
+          return {
+            role: msg.role as "user" | "assistant",
+            content: `${systemPrompt}\n\n[CURRENT SLIDE STATE]\n${JSON.stringify(
+              { slides: currentSlides, caption, hashtags },
+              null,
+              2
+            )}\n\n[USER REQUEST]\n${msg.content}`,
+          };
+        }
         return {
           role: msg.role as "user" | "assistant",
-          content: `${systemPrompt}\n\n[CURRENT SLIDE STATE]\n${JSON.stringify({ slides: currentSlides, caption, hashtags }, null, 2)}\n\n[USER REQUEST]\n${msg.content}`
+          content: msg.content,
         };
       }
-      return {
-        role: msg.role as "user" | "assistant",
-        content: msg.content
-      };
-    });
+    );
 
     const models = [
       "google/gemma-2-9b-it:free",
       "meta-llama/llama-3.1-8b-instruct:free",
-      "openrouter/auto" // Paid fallback if free fails completely
+      "openrouter/auto", // Paid fallback
     ];
 
     let fullResponse = "";
-    let lastError = null;
+    let lastError: unknown = null;
 
     for (const model of models) {
       try {
-        console.log(`Trying model: ${model}`);
-        const stream = await openrouter.chat.send({
-          chatRequest: {
-            model: model,
-            messages: openRouterMessages,
-            stream: true,
-          },
-        });
+        // Wrap each model call in a 30-second timeout
+        const stream = await withTimeout(
+          openrouter.chat.send({
+            chatRequest: {
+              model,
+              messages: openRouterMessages,
+              stream: true,
+              maxTokens: 2048, // Prevent runaway cost / hang
+            },
+          }),
+          30_000
+        );
 
         let currentResponse = "";
         if (Symbol.asyncIterator in Object(stream)) {
@@ -153,9 +191,7 @@ Rules for Content Correctness & Conversational Tone:
             unknown & { choices?: { delta?: { content?: string } }[] }
           >) {
             const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) {
-              currentResponse += delta;
-            }
+            if (delta) currentResponse += delta;
           }
         } else {
           const result = stream as unknown as {
@@ -166,32 +202,36 @@ Rules for Content Correctness & Conversational Tone:
 
         if (currentResponse.trim()) {
           fullResponse = currentResponse;
-          break; // Success, exit loop
+          break; // Success — stop trying more models
         }
       } catch (e: unknown) {
         lastError = e;
-        console.warn(`Model ${model} failed:`, e instanceof Error ? e.message : e);
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`Model ${model} failed: ${msg}`);
         // Continue to next model
       }
     }
 
     if (!fullResponse.trim()) {
-      throw new Error(`All models failed. Last error: ${lastError instanceof Error ? lastError.message : "Unknown error"}`);
+      throw new Error(
+        `All models failed. Last error: ${
+          lastError instanceof Error ? lastError.message : "Unknown error"
+        }`
+      );
     }
 
     // Robust JSON extraction: Find the first '{' and matching last '}'
     let cleaned = fullResponse.trim();
     const firstBraceIdx = cleaned.indexOf("{");
     const lastBraceIdx = cleaned.lastIndexOf("}");
-
     if (firstBraceIdx !== -1 && lastBraceIdx !== -1 && lastBraceIdx > firstBraceIdx) {
       cleaned = cleaned.substring(firstBraceIdx, lastBraceIdx + 1);
     }
 
-    let json;
+    let json: { assistant_message?: string; post?: unknown };
     try {
       json = JSON.parse(cleaned);
-    } catch (parseErr) {
+    } catch {
       console.error("Failed to parse LLM output:", fullResponse);
       throw new Error("LLM returned invalid JSON structure. Try again.");
     }
@@ -208,32 +248,47 @@ Rules for Content Correctness & Conversational Tone:
   }
 }
 
+// ─── Template + platform constraints for the system prompt ──────────────────
 function getTemplateConstraints(template: string, platform: string): string {
   let text = `Active Social Platform: ${platform || "instagram"}\n`;
   text += `Active Template Style: ${template || "clinical"}\n\n`;
 
-  // Platform specific constraints
   if (platform === "linkedin") {
-    text += `- Sizing context: The user is creating a LinkedIn Document carousel. Sizing is landscape 4:3 or square. Keep the text highly professional, authoritative, and clean.\n`;
+    text += `- Sizing context: LinkedIn Document carousel. Landscape 4:3 or square. Keep text highly professional, authoritative, and clean.\n`;
   } else if (platform === "facebook") {
-    text += `- Sizing context: The user is creating a Facebook Landscape post. Height is very limited (1.91:1 aspect ratio). Keep headlines short and restrict subtexts to 1 short sentence to prevent vertical text overflow!\n`;
+    text += `- Sizing context: Facebook Landscape post (1.91:1). Height is very limited — keep headlines short and subtexts to 1 short sentence.\n`;
   } else if (platform === "whatsapp") {
-    text += `- Sizing context: The user is creating a WhatsApp Status/Story. Vertical space is abundant (9:16 portrait), but keep design clean. Feel free to use engaging, direct, and conversational text suited for instant story status viewers.\n`;
+    text += `- Sizing context: WhatsApp Status/Story (9:16 portrait). Vertical space is abundant. Keep text engaging, direct, and conversational.\n`;
   } else {
-    text += `- Sizing context: The user is creating an Instagram Portrait post (4:5 vertical). This is the default layout.\n`;
+    text += `- Sizing context: Instagram Portrait post (4:5 vertical). Default layout.\n`;
   }
 
-  // Template specific constraints
-  if (template === "bold") {
-    text += `- Design constraint: "Bold Statement" uses extremely large high-contrast typography. Slide headlines MUST be extremely short (1-4 words max) and punchy. Keep subtexts empty or highly compact (1 sentence max).\n`;
-  } else if (template === "clinical") {
-    text += `- Design constraint: "Clinical Notes" has structured margins. Great for structured lists, concise observations, and clean, clinical insights.\n`;
-  } else if (template === "soft") {
-    text += `- Design constraint: "Soft Pastel" uses playfair serif quotes. Perfect for wellness, quotes, warm tone reflections, and gentle self-care takeaways.\n`;
-  } else if (template === "data") {
-    text += `- Design constraint: "Data Visual" has roboto mono tech elements. Highly structured, data-centric, facts or monospace layout style.\n`;
+  switch (template) {
+    case "bold":
+      text += `- Design constraint: "Bold Statement" uses large high-contrast typography. Headlines MUST be 1-4 words max. Keep subtexts empty or highly compact (1 sentence max).\n`;
+      break;
+    case "clinical":
+      text += `- Design constraint: "Clinical Notes" has structured margins. Great for structured lists, concise observations, and clean clinical insights.\n`;
+      break;
+    case "soft":
+      text += `- Design constraint: "Soft Pastel" uses Playfair serif quotes. Perfect for wellness, warm tone reflections, and gentle self-care takeaways.\n`;
+      break;
+    case "data":
+      text += `- Design constraint: "Data Visual" uses Roboto Mono tech elements. Highly structured, data-centric, facts or monospace layout.\n`;
+      break;
+    case "honey":
+      text += `- Design constraint: "Honey Story" uses warm forest & honey tones with elegant Cormorant Garamond serif typography. Write warm, elegant, and narrative-driven copy.\n`;
+      break;
+    case "mango":
+      text += `- Design constraint: "Mango Story" uses bold mango gold & deep forest palette. Perfect for product storytelling, punchy lines, and vibrant energy.\n`;
+      break;
+    case "developer":
+      text += `- Design constraint: "Developer Tips" uses a code editor and terminal aesthetic. You MUST generate realistic code snippets, variables, and commands. Headlines MUST be formatted as variables, commands, or functions (e.g. \`git commit\`, \`const fix = 1;\`). Subtexts MUST be formatted as code comments (e.g., prefix with \`// \` or \`/* \`).\n`;
+      break;
+    case "terminal":
+      text += `- Design constraint: "Terminal (Text)" uses the same terminal aesthetic but is for PLAIN TEXT content. DO NOT format text as code. DO NOT use \`//\`, \`/*\`, \`const\`, or function syntax. Write normal, highly readable headlines and subtexts.\n`;
+      break;
   }
 
   return text;
 }
-

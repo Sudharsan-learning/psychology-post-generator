@@ -1,7 +1,5 @@
 "use client";
 
-import { useRef } from "react";
-
 const BUILTIN_TEMPLATES = [
   {
     id: "clinical",
@@ -45,6 +43,20 @@ const BUILTIN_TEMPLATES = [
     preview: "🥭",
     accent: "#F4A829",
   },
+  {
+    id: "developer",
+    name: "Developer (Code)",
+    description: "Code editor aesthetic. Optimized for coding topics, snippets, and commands.",
+    preview: "💻",
+    accent: "#39C5CF",
+  },
+  {
+    id: "terminal",
+    name: "Terminal (Text)",
+    description: "Same developer aesthetic, but designed for plain text and standard content.",
+    preview: "⌨️",
+    accent: "#58A6FF",
+  },
 ];
 
 interface Props {
@@ -56,22 +68,7 @@ interface Props {
 }
 
 export default function TemplateGallery({ theme, activeTemplate, onSelectTemplate, onCustomUpload, platform }: Props) {
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !file.name.endsWith(".html")) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const html = ev.target?.result as string;
-      if (html) onCustomUpload(html);
-    };
-    reader.readAsText(file);
-    // Reset so same file can be re-uploaded
-    e.target.value = "";
-  };
-
-  const colors = getPlatformColors(platform);
+  const styles = getTemplateCardStyles(platform);
 
   return (
     <div className="flex flex-col gap-6">
@@ -89,44 +86,64 @@ export default function TemplateGallery({ theme, activeTemplate, onSelectTemplat
               className={`group text-left rounded-xl border p-4 transition-all ${
                 activeTemplate === tpl.id
                   ? theme === "dark"
-                    ? colors.activeCardDark
-                    : colors.activeCardLight
+                    ? styles.activeCardDark
+                    : styles.activeCardLight
                   : theme === "dark"
                   ? "border-neutral-800 bg-neutral-900/50 hover:border-neutral-700"
                   : "border-neutral-200 bg-white hover:border-neutral-300"
               }`}
             >
               <div className="flex items-start gap-4">
-                <div
-                  className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ background: tpl.accent + "33" }}
-                >
+                <div className="w-12 h-12 rounded-lg flex-shrink-0 overflow-hidden border border-neutral-800/20 relative shadow-sm">
                   {tpl.id === "clinical" ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ color: tpl.accent }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
+                    <div className="w-full h-full bg-neutral-900 flex flex-col justify-between p-1.5 border-l-4 border-pink-500">
+                      <div className="w-6 h-1 bg-neutral-700 rounded-sm" />
+                      <div className="w-8 h-1 bg-neutral-800 rounded-sm" />
+                      <div className="w-4 h-1 bg-neutral-800 rounded-sm" />
+                    </div>
                   ) : tpl.id === "bold" ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24" style={{ color: "#ffffff" }}>
-                      <rect width="14" height="14" x="5" y="5" rx="2" fill="currentColor" />
-                    </svg>
+                    <div className="w-full h-full bg-neutral-100 flex flex-col items-center justify-center p-1.5">
+                      <div className="w-8 h-2.5 bg-black rounded-sm mb-1" />
+                      <div className="w-6 h-1 bg-neutral-500 rounded-sm" />
+                    </div>
+                  ) : tpl.id === "soft" ? (
+                    <div className="w-full h-full bg-pink-100/90 flex flex-col justify-between p-1.5 rounded-sm">
+                      <div className="w-5 h-1 bg-pink-800/40 rounded-sm" />
+                      <div className="w-7 h-1.5 bg-pink-900/60 rounded-sm" />
+                      <div className="w-4 h-1 bg-pink-800/40 rounded-sm" />
+                    </div>
                   ) : tpl.id === "data" ? (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ color: tpl.accent }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 13h2v8H3zM9 9h2v12H9zM15 5h2v16h-2zM21 1h2v20h-2z" />
-                    </svg>
+                    <div className="w-full h-full bg-neutral-950 font-mono flex flex-col justify-between p-1.5 border border-emerald-500/30">
+                      <div className="w-8 h-1 bg-emerald-500/50 rounded-sm" />
+                      <div className="w-6 h-1 bg-emerald-500/70 rounded-sm" />
+                      <div className="w-5 h-1 bg-emerald-500/30 rounded-sm" />
+                    </div>
                   ) : tpl.id === "honey" ? (
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" style={{ color: tpl.accent }}>
-                      <path d="M12 2l2.4 4.2L19 7.5l-3.4 3.6.6 4.9L12 14l-4.2 2l.6-4.9L5 7.5l4.6-1.3L12 2z" fill="currentColor" opacity="0.8" />
-                      <path d="M12 14v8M9 18h6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
+                    <div className="w-full h-full bg-amber-50 flex flex-col justify-between p-1.5">
+                      <div className="w-6 h-1 bg-amber-900/35 rounded-sm" />
+                      <div className="w-8 h-1.5 bg-amber-800 rounded-sm" />
+                      <div className="w-5 h-1 bg-amber-900/35 rounded-sm" />
+                    </div>
                   ) : tpl.id === "mango" ? (
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" style={{ color: tpl.accent }}>
-                      <circle cx="12" cy="12" r="9" fill="currentColor" opacity="0.3" />
-                      <circle cx="12" cy="12" r="5" fill="currentColor" opacity="0.7" />
-                    </svg>
+                    <div className="w-full h-full bg-emerald-950 flex flex-col justify-between p-1.5">
+                      <div className="w-5 h-1 bg-yellow-500/50 rounded-sm" />
+                      <div className="w-8 h-1.5 bg-yellow-500 rounded-sm" />
+                      <div className="w-4 h-1 bg-yellow-500/50 rounded-sm" />
+                    </div>
+                  ) : tpl.id === "developer" || tpl.id === "terminal" ? (
+                    <div className="w-full h-full bg-[#0D1117] flex flex-col justify-between p-1.5 border border-[#30363D]">
+                      <div className="flex gap-0.5 mb-1">
+                        <div className="w-1.5 h-1.5 bg-[#FF5F57] rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-[#FFBD2E] rounded-full" />
+                        <div className="w-1.5 h-1.5 bg-[#28CA41] rounded-full" />
+                      </div>
+                      <div className="w-6 h-1 bg-[#58A6FF] rounded-sm" />
+                      <div className="w-8 h-1 bg-[#D2A8FF] rounded-sm" />
+                    </div>
                   ) : (
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ color: tpl.accent }}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
-                    </svg>
+                    <div className="w-full h-full bg-neutral-800 flex items-center justify-center">
+                      <span className="text-xs">✨</span>
+                    </div>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -150,67 +167,11 @@ export default function TemplateGallery({ theme, activeTemplate, onSelectTemplat
         </div>
       </div>
 
-      {/* Custom upload */}
-      <div>
-        <h3 className={`text-xs font-mono uppercase tracking-widest mb-4 ${
-          theme === "dark" ? "text-neutral-400" : "text-neutral-500"
-        }`}>
-          Custom template
-        </h3>
-        <div
-          className={`rounded-xl border-2 border-dashed p-8 text-center cursor-not-allowed opacity-50 transition-colors group ${
-            theme === "dark"
-              ? "border-neutral-800 bg-neutral-900/10"
-              : "border-neutral-300 bg-white"
-          }`}
-        >
-          <svg className={`w-8 h-8 mx-auto mb-3 ${
-            theme === "dark" ? "text-neutral-500" : "text-neutral-400"
-          }`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-          </svg>
-          <p className={`text-sm font-medium ${
-            theme === "dark" ? "text-neutral-300" : "text-neutral-700"
-          }`}>Upload .html template (Coming Soon)</p>
-          <p className="text-xs text-neutral-500 mt-1">
-            Custom template upload and token injection is disabled.
-          </p>
-        </div>
-
-        {/* Token reference */}
-        <div className={`mt-4 rounded-xl p-4 border ${
-          theme === "dark"
-            ? "bg-neutral-950 border-neutral-900"
-            : "bg-neutral-100 border-neutral-200"
-        }`}>
-          <p className={`text-xs font-mono mb-2 uppercase tracking-widest ${
-            theme === "dark" ? "text-neutral-400" : "text-neutral-500"
-          }`}>Template tokens</p>
-          <div className="grid grid-cols-2 gap-y-1.5 gap-x-4">
-            {[
-              "{{author}}",
-              "{{slide1_eyebrow}}",
-              "{{slide1_headline}}",
-              "{{slide1_subtext}}",
-              "{{slideN_eyebrow}}",
-              "{{slideN_headline}}",
-            ].map((token) => (
-              <code key={token} className={`text-[11px] px-1.5 py-0.5 rounded ${
-                theme === "dark"
-                  ? "text-pink-400 bg-neutral-900"
-                  : "text-pink-600 bg-white border border-neutral-200"
-              }`}>
-                {token}
-              </code>
-            ))}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
 
-const getPlatformColors = (platform: string) => {
+const getTemplateCardStyles = (platform: string) => {
   switch (platform) {
     case "facebook":
     case "linkedin":
